@@ -585,6 +585,201 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
     return reviews_data, estado
 
 
+def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
+    """
+    Procesa un restaurante usando un driver ya inicializado (no lo cierra).
+    El driver ya debe haber navegado a la URL del lugar.
+    """
+    url = lugar['link']
+    nombre = lugar.get('nombre', 'Desconocido')
+    categoria = lugar.get('categoria', '')
+    
+    # Verificar tiempo restante
+    tiempo_transcurrido = time.time() - tiempo_inicio
+    if tiempo_transcurrido > TIEMPO_LIMITE_SEGUNDOS:
+        return None, "TIMEOUT_GLOBAL"
+    
+    reviews_data = []
+    estado = "ERROR_TEMPORAL"
+    mensaje = ""
+    
+    metadata = {
+        "nombre": nombre,
+        "categoria": categoria,
+        "rating_gral": None,
+        "total_google": 0,
+        "direccion": None,
+        "latitud": None,
+        "longitud": None
+    }
+    
+    # Coordenadas de URL
+    lat, lon = extraer_coordenadas_url(url)
+    metadata['latitud'] = lat
+    metadata['longitud'] = lon
+
+    try:
+        try: 
+            driver.execute_script("document.body.style.zoom='50%'")
+        except: 
+            pass
+
+        # Esperar carga
+        try:
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "button[role='tab']")))
+        except TimeoutException:
+            driver.refresh()
+            time.sleep(5)
+
+        # Extraer dirección
+        try:
+            boton_direccion = driver.find_element(By.CSS_SELECTOR, "button[data-item-id='address']")
+            direccion_elem = boton_direccion.find_element(By.CLASS_NAME, "Io6YTe")
+            metadata['direccion'] = direccion_elem.text.strip()
+        except:
+            pass
+
+        # Navegar a pestaña Opiniones
+        if not forzar_entrada_pestana_opiniones(driver):
+            driver.refresh()
+            time.sleep(5)
+            if not forzar_entrada_pestana_opiniones(driver):
+                estado = "SIN_OPINIONES"
+                mensaje = "No tiene pestaña de Opiniones"
+                actualizar_estado(url, estado, mensaje)
+                return [], estado
+
+        # Ordenar por recientes
+        ordenar_por_recientes(driver)
+
+        # Metadata
+        try: 
+            metadata['rating_gral'] = driver.find_element(By.CLASS_NAME, "fontDisplayLarge").text
+        except: 
+            pass
+        
+        metadata['total_google'] = detectar_total_reviews(driver)
+        target = min(metadata['total_google'], 500)
+        
+        logger.info(f"   Rating: {metadata['rating_gral']} | Reviews: {metadata['total_google']} | Target: {target}")
+
+        # Scroll para cargar reseñas
+        ultimo_conteo = 0
+        tiempo_estancado = 0
+        scroll_start = time.time()
+        
+        while True:
+            if time.time() - tiempo_inicio > TIEMPO_LIMITE_SEGUNDOS:
+                logger.warning("Tiempo límite global alcanzado durante scroll")
+                break
+            
+            conteo_actual = len(driver.find_elements(By.CSS_SELECTOR, "div.jftiEf"))
+            
+            if conteo_actual >= target:
+                break
+            
+            if conteo_actual == ultimo_conteo:
+                tiempo_estancado += 1
+                if tiempo_estancado > 8:
+                    break
+            else:
+                tiempo_estancado = 0
+                ultimo_conteo = conteo_actual
+            
+            if time.time() - scroll_start > 180:
+                break
+            
+            try:
+                contenedor = driver.find_element(By.CSS_SELECTOR, "div.m6QErb.DxyBCb")
+                driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight;", contenedor)
+            except:
+                pass
+            
+            time.sleep(1)
+        
+        # Expandir reseñas largas
+        expandir_resenas_largas(driver)
+        
+        # Cargar IDs de reseñas existentes
+        ids_existentes = cargar_reviews_existentes_por_url(url)
+        if ids_existentes:
+            logger.info(f"   Reseñas existentes en dataset: {len(ids_existentes)}")
+        
+        # Extraer datos con BeautifulSoup
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        bloques = soup.find_all('div', class_='jftiEf')
+        
+        fecha_scraping = datetime.datetime.now().isoformat()
+        reviews_nuevas = 0
+        reviews_duplicadas = 0
+        
+        for bloque in bloques:
+            t_autor = bloque.find('div', class_='d4r55')
+            autor = t_autor.text.strip() if t_autor else "Anónimo"
+            
+            t_texto = bloque.find('span', class_='wiI7pd')
+            texto = t_texto.text.strip() if t_texto else ""
+            
+            t_fecha = bloque.find('span', class_='rsqaWe')
+            fecha_texto = t_fecha.text.strip() if t_fecha else None
+            
+            fecha_aproximada, fecha_original = parsear_fecha_relativa(fecha_texto)
+            
+            review_id = generar_id_review(url, autor, fecha_texto, texto)
+            
+            if review_id in ids_existentes:
+                reviews_duplicadas += 1
+                continue
+            
+            row = {
+                'restaurante': metadata['nombre'],
+                'categoria': metadata['categoria'],
+                'rating_gral': metadata['rating_gral'],
+                'total_reviews_google': metadata['total_google'],
+                'direccion': metadata['direccion'],
+                'latitud': metadata['latitud'],
+                'longitud': metadata['longitud'],
+                'autor': autor,
+                'rating_user': None,
+                'texto': texto,
+                'fecha_aproximada': fecha_aproximada,
+                'fecha_original': fecha_original,
+                'url': url,
+                'fecha_scraping': fecha_scraping,
+                'review_id': review_id
+            }
+            
+            tags_img = bloque.find_all('span', role='img')
+            for tag in tags_img:
+                lbl = (tag.get('aria-label') or "").lower()
+                if 'estrella' in lbl or 'star' in lbl:
+                    match = re.search(r'(\d+[.,]?\d*)', lbl)
+                    if match:
+                        try: 
+                            row['rating_user'] = float(match.group(1).replace(',', '.'))
+                        except: 
+                            pass
+                        break
+            
+            reviews_data.append(row)
+            reviews_nuevas += 1
+        
+        estado = "EXITO"
+        mensaje = f"Nuevas: {reviews_nuevas}, Duplicadas: {reviews_duplicadas}"
+        logger.info(f"   ✓ {reviews_nuevas} reseñas NUEVAS | {reviews_duplicadas} duplicadas (skip)")
+
+    except Exception as e:
+        estado = "ERROR_TEMPORAL"
+        mensaje = str(e)[:200]
+        logger.error(f"   Error: {e}")
+    
+    # NO cerramos el driver aquí - se reutiliza
+    
+    actualizar_estado(url, estado, mensaje)
+    return reviews_data, estado
+
+
 # ==========================================
 # MAIN
 # ==========================================
@@ -625,9 +820,49 @@ if __name__ == "__main__":
     logger.info(f"Pendientes: {len(pendientes)}")
     logger.info("-" * 40)
     
+    # Crear driver compartido para evitar crear uno nuevo cada vez
+    logger.info("Creando driver de Chrome...")
+    driver = None
+    
+    def obtener_driver():
+        """Obtiene o crea un driver de Chrome"""
+        global driver
+        if driver is None:
+            options = webdriver.ChromeOptions()
+            options.add_argument("--headless")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--window-size=1920,4000")
+            options.add_argument("--lang=es-AR")
+            options.add_argument("--log-level=3")
+            options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.set_page_load_timeout(60)
+        return driver
+    
+    def reiniciar_driver():
+        """Reinicia el driver si crashea"""
+        global driver
+        try:
+            driver.quit()
+        except:
+            pass
+        driver = None
+        time.sleep(3)
+        return obtener_driver()
+    
     # Procesar
     procesados = 0
     total_reviews = 0
+    errores_consecutivos = 0
+    
+    try:
+        driver = obtener_driver()
+        logger.info("✓ Driver creado exitosamente")
+    except Exception as e:
+        logger.error(f"No se pudo crear el driver: {e}")
+        sys.exit(1)
     
     for i, lugar in enumerate(pendientes, 1):
         # Verificar tiempo
@@ -636,17 +871,54 @@ if __name__ == "__main__":
             logger.warning(f"LÍMITE DE TIEMPO ALCANZADO: {tiempo_transcurrido/3600:.2f}h")
             break
         
-        reviews, estado = procesar_restaurante(lugar, i, len(pendientes), tiempo_inicio)
+        url = lugar['link']
+        nombre = lugar.get('nombre', 'Desconocido')
         
-        if estado == "TIMEOUT_GLOBAL":
-            break
+        logger.info(f"[{i}/{len(pendientes)}] {nombre[:40]}...")
         
-        if reviews:
-            guardar_reviews(reviews)
-            total_reviews += len(reviews)
+        try:
+            # Navegar a la URL
+            driver.get(url)
+            time.sleep(2)
+            
+            # Verificar que el driver sigue funcionando
+            _ = driver.title
+            
+            # Procesar
+            reviews, estado = procesar_restaurante_con_driver(driver, lugar, tiempo_inicio)
+            
+            if estado == "TIMEOUT_GLOBAL":
+                break
+            
+            if reviews:
+                guardar_reviews(reviews)
+                total_reviews += len(reviews)
+            
+            procesados += 1
+            errores_consecutivos = 0
+            
+        except Exception as e:
+            errores_consecutivos += 1
+            logger.warning(f"   Error en lugar: {str(e)[:50]}")
+            actualizar_estado(url, "ERROR_TEMPORAL", str(e)[:100])
+            
+            if errores_consecutivos >= 3:
+                logger.warning("3 errores consecutivos - reiniciando driver...")
+                try:
+                    driver = reiniciar_driver()
+                    logger.info("✓ Driver reiniciado")
+                    errores_consecutivos = 0
+                except Exception as restart_error:
+                    logger.error(f"No se pudo reiniciar el driver: {restart_error}")
+                    break
         
-        procesados += 1
-        time.sleep(1)  # Pausa entre lugares
+        time.sleep(2)  # Pausa entre lugares
+    
+    # Cerrar driver
+    try:
+        driver.quit()
+    except:
+        pass
     
     # Resumen
     tiempo_total = time.time() - tiempo_inicio
