@@ -1,0 +1,18 @@
+name: Test Clone Repo Privado
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-clone:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Test clone repo privado
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          echo "Probando clone del repo privado..."
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          echo "✅ Clone exitoso!"
+          ls -la private-repo/
