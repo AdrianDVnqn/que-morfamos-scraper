@@ -87,13 +87,17 @@ def obtener_links_de_busqueda(query, max_reintentos=3):
     Busca lugares en Google Maps y extrae los links.
     Retorna una lista de diccionarios con metadata.
     """
-    # Configuración del navegador
+    # Configuración del navegador (compatible con GitHub Actions)
     options = webdriver.ChromeOptions()
-    # options.add_argument("--headless") 
+    options.add_argument("--headless=new")  # Nuevo modo headless
+    options.add_argument("--no-sandbox")  # Requerido en GitHub Actions
+    options.add_argument("--disable-dev-shm-usage")  # Evita errores de memoria compartida
+    options.add_argument("--disable-gpu")  # Requerido en algunos entornos Linux
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--lang=es-AR")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
+
     
     resultados = []
     timestamp_busqueda = datetime.now().isoformat()

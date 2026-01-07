@@ -196,12 +196,16 @@ def procesar_lugares():
         logger.warning("No hay lugares para procesar.")
         return
     
-    # Configurar navegador
+    # Configurar navegador (compatible con GitHub Actions)
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")  # Nuevo modo headless
+    options.add_argument("--no-sandbox")  # Requerido en GitHub Actions
+    options.add_argument("--disable-dev-shm-usage")  # Evita errores de memoria compartida
+    options.add_argument("--disable-gpu")  # Requerido en algunos entornos Linux
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--lang=es-AR")
     options.add_argument("--disable-blink-features=AutomationControlled")
+
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
