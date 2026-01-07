@@ -933,6 +933,8 @@ if __name__ == "__main__":
                     import subprocess
                     subprocess.run(["cp", "estado_reviews.csv", "private-repo/data/"], check=False)
                     subprocess.run(["cp", "reviews_neuquen.csv", "private-repo/data/"], check=False)
+                    subprocess.run(["git", "-C", "private-repo", "config", "user.name", "GitHub Actions Bot"], check=False)
+                    subprocess.run(["git", "-C", "private-repo", "config", "user.email", "actions@github.com"], check=False)
                     subprocess.run(["git", "-C", "private-repo", "add", "."], check=False)
                     subprocess.run(["git", "-C", "private-repo", "commit", "-m", f"Progreso: {procesados} lugares, {total_reviews} reseñas"], check=False)
                     subprocess.run(["git", "-C", "private-repo", "push"], check=False)
