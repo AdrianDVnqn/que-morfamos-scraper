@@ -435,7 +435,7 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
             pass
         
         metadata['total_google'] = detectar_total_reviews(driver)
-        target = min(metadata['total_google'], 200)  # Límite por lugar para no tardar mucho
+        target = min(metadata['total_google'], 500)  # Límite por lugar por ejecución
         
         logger.info(f"   Rating: {metadata['rating_gral']} | Reviews: {metadata['total_google']} | Target: {target}")
 
