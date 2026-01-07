@@ -245,12 +245,23 @@ def crear_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-software-rasterizer")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--disable-sync")
+    options.add_argument("--remote-debugging-port=9222")
     options.add_argument("--window-size=1920,4000")
     options.add_argument("--lang=es-AR")
     options.add_argument("--log-level=3")
     options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
     
+    # Más estabilidad en GitHub Actions
+    options.add_argument("--single-process")
+    options.add_argument("--disable-features=VizDisplayCompositor")
+    
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
 
 def forzar_entrada_pestana_opiniones(driver):
     """Intenta entrar a la pestaña de Opiniones"""
