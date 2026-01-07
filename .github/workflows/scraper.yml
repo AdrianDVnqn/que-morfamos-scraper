@@ -1,0 +1,59 @@
+name: Scraper de Restaurantes
+
+on:
+  schedule:
+    # Ejecutar cada lunes a las 3:00 AM UTC
+    - cron: '0 3 * * 1'
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout código del scraper
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager
+      
+      - name: Ejecutar scraper
+        run: python restaurant-scraper.py
+      
+      - name: Subir resultados al repo privado
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          # Clonar el repo privado
+          git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo
+          
+          # Crear directorios si no existen
+          mkdir -p private-repo/data
+          mkdir -p private-repo/logs
+          
+          # Copiar archivos generados
+          cp lugares_encontrados.csv private-repo/data/
+          cp logs/scraper_run.log private-repo/logs/
+          
+          # Agregar timestamp al nombre del log para historial
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cp logs/scraper_run.log "private-repo/logs/run_${TIMESTAMP}.log"
+          
+          # Commit y push
+          cd private-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Actualización automática de datos - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios para commitear"
+          git push
