@@ -20,14 +20,34 @@ jobs:
         with:
           python-version: '3.10'
       
+      - name: Instalar dependencias básicas
+        run: pip install requests
+      
+      # NOTIFICACIÓN DE INICIO
+      - name: Notificar inicio
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              msg = f'''🚀 **INICIANDO - Actualización de Lugares**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              
+              Comenzando scraping de restaurantes en Google Maps...'''
+              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x9b59b6}]})
+              print('✓ Notificación de inicio enviada')
+          "
+      
       - name: Instalar Chrome
         uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
       
-      - name: Instalar dependencias
+      - name: Instalar dependencias completas
         run: |
-          pip install selenium webdriver-manager openai beautifulsoup4 requests
+          pip install selenium webdriver-manager openai beautifulsoup4
       
       # ETAPA 1: Scraping de lugares
       - name: Ejecutar scraper de lugares
@@ -39,23 +59,44 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: python enrichment-validator.py
       
-      # ETAPA 3: Generar resumen y notificar
-      - name: Enviar notificación Discord
+      # ETAPA 3: Subir resultados al repo privado
+      - name: Subir resultados al repo privado
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          
+          mkdir -p private-repo/data
+          mkdir -p private-repo/logs
+          
+          cp lugares_encontrados.csv private-repo/data/ 2>/dev/null || true
+          cp lugares_validados.csv private-repo/data/ 2>/dev/null || true
+          cp lugares_rechazados.csv private-repo/data/ 2>/dev/null || true
+          
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cp logs/scraper_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/enrichment_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/scraper_run.log "private-repo/logs/scraper_${TIMESTAMP}.log" 2>/dev/null || true
+          cp logs/enrichment_run.log "private-repo/logs/enrichment_${TIMESTAMP}.log" 2>/dev/null || true
+          
+          cd private-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Actualización de lugares - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
+          git push
+      
+      # NOTIFICACIÓN DE ÉXITO (solo si todo salió bien)
+      - name: Notificar éxito
+        if: success()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           python -c "
-          import os
-          import csv
-          import requests
-          import datetime
-
+          import os, csv, requests, datetime
           webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if not webhook:
-              print('DISCORD_WEBHOOK_URL no configurado')
-              exit(0)
+          if not webhook: exit(0)
 
-          # Contar lugares
           encontrados = validados = rechazados = 0
           try:
               with open('lugares_encontrados.csv', 'r') as f:
@@ -70,44 +111,31 @@ jobs:
                   rechazados = sum(1 for _ in csv.reader(f)) - 1
           except: pass
 
-          mensaje = f'''**📍 QUE MORFAMOS - Actualización de Lugares**
+          msg = f'''✅ **COMPLETADO - Actualización de Lugares**
           📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
 
-          • Lugares encontrados: **{encontrados}**
-          • ✅ Validados: **{validados}**
-          • ❌ Rechazados: **{rechazados}**
-          '''
+          📍 Lugares encontrados: **{encontrados}**
+          ✅ Validados: **{validados}**
+          ❌ Rechazados: **{rechazados}**'''
 
-          requests.post(webhook, json={'embeds': [{'description': mensaje, 'color': 0x3498db}]})
-          print('✓ Notificación enviada')
+          requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x2ecc71}]})
+          print('✓ Notificación de éxito enviada')
           "
       
-      # ETAPA 4: Subir resultados al repo privado
-      - name: Subir resultados al repo privado
+      # NOTIFICACIÓN DE ERROR (si algo falló)
+      - name: Notificar error
+        if: failure()
         env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
-          
-          mkdir -p private-repo/data
-          mkdir -p private-repo/logs
-          
-          # Copiar archivos de datos
-          cp lugares_encontrados.csv private-repo/data/ 2>/dev/null || true
-          cp lugares_validados.csv private-repo/data/ 2>/dev/null || true
-          cp lugares_rechazados.csv private-repo/data/ 2>/dev/null || true
-          
-          # Copiar logs con timestamp
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          cp logs/scraper_run.log private-repo/logs/ 2>/dev/null || true
-          cp logs/enrichment_run.log private-repo/logs/ 2>/dev/null || true
-          cp logs/scraper_run.log "private-repo/logs/scraper_${TIMESTAMP}.log" 2>/dev/null || true
-          cp logs/enrichment_run.log "private-repo/logs/enrichment_${TIMESTAMP}.log" 2>/dev/null || true
-          
-          # Commit y push
-          cd private-repo
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "Actualización de lugares - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
-          git push
+          python -c "
+          import os, requests, datetime
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              msg = f'''❌ **ERROR - Actualización de Lugares**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              
+              El workflow falló. Revisar los logs en GitHub Actions.'''
+              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
+              print('✓ Notificación de error enviada')
+          "
