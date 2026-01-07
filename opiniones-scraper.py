@@ -262,7 +262,10 @@ def forzar_entrada_pestana_opiniones(driver):
         "//button[@role='tab'][contains(@aria-label, 'Revisiones')]", 
         "//button[@role='tab'][@data-tab-index='2']",
         "//button[@role='tab']//div[contains(text(), 'Opiniones')]",
-        "//button[@role='tab'][contains(@aria-label, 'Opiniones')]"
+        "//button[@role='tab'][contains(@aria-label, 'Opiniones')]",
+        "//button[@role='tab'][contains(@aria-label, 'Reviews')]",
+        "//button[@role='tab'][contains(., 'Reviews')]",
+        "//button[@role='tab'][contains(., 'Opiniones')]"
     ]
 
     for intento in range(3):
@@ -280,9 +283,13 @@ def forzar_entrada_pestana_opiniones(driver):
                 botones = driver.find_elements(By.CSS_SELECTOR, "button[role='tab']")
                 for btn in botones:
                     try:
-                        txt = btn.get_attribute("textContent").lower()
+                        txt = (btn.get_attribute("textContent") or "").lower()
                         aria = (btn.get_attribute("aria-label") or "").lower()
-                        if "opiniones" in txt or "revisiones" in aria or "reviews" in aria:
+                        # Buscar en español e inglés
+                        if any(word in txt for word in ["opiniones", "reviews", "reseñas"]):
+                            boton_encontrado = btn
+                            break
+                        if any(word in aria for word in ["opiniones", "reviews", "reseñas", "revisiones"]):
                             boton_encontrado = btn
                             break
                     except: 
@@ -293,8 +300,9 @@ def forzar_entrada_pestana_opiniones(driver):
         if boton_encontrado:
             try:
                 driver.execute_script("arguments[0].click();", boton_encontrado)
+                # Esperar confirmación - también en inglés
                 WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Escribir')]"))
+                    EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort') or contains(@aria-label, 'Escribir') or contains(@aria-label, 'Write')]"))
                 )
                 return True
             except:
@@ -303,13 +311,23 @@ def forzar_entrada_pestana_opiniones(driver):
         time.sleep(1.5)
     return False
 
+
 def ordenar_por_recientes(driver):
     """Ordena reseñas por más recientes"""
     for intento in range(3):
         try:
-            boton_ordenar = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(@aria-label, 'Ordenar')]"))
-            )
+            # Buscar botón ordenar en español o inglés
+            boton_ordenar = None
+            try:
+                boton_ordenar = WebDriverWait(driver, 3).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort')]"))
+                )
+            except:
+                pass
+            
+            if not boton_ordenar:
+                return True  # Si no hay botón de ordenar, continuar
+                
             driver.execute_script("arguments[0].click();", boton_ordenar)
             time.sleep(1)
 
@@ -317,7 +335,8 @@ def ordenar_por_recientes(driver):
             
             for op in opciones:
                 try:
-                    if "recientes" in op.text.lower() or "newest" in op.text.lower():
+                    texto = op.text.lower()
+                    if "recientes" in texto or "newest" in texto or "más nuevas" in texto:
                         driver.execute_script("arguments[0].click();", op)
                         time.sleep(3)
                         return True
@@ -329,6 +348,7 @@ def ordenar_por_recientes(driver):
                 driver.execute_script("arguments[0].click();", opciones[1])
                 time.sleep(3)
                 return True
+
                 
         except Exception:
             time.sleep(1)
