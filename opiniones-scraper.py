@@ -906,9 +906,19 @@ if __name__ == "__main__":
         logger.info(f"[{i}/{len(pendientes)}] {nombre[:40]}...")
         
         try:
-            # Navegar a la URL
-            driver.get(url)
+            # Forzar idioma español en la URL (reemplazar hl=en por hl=es)
+            url_es = url.replace('hl=en', 'hl=es').replace('&hl=en-US', '&hl=es')
+            if 'hl=' not in url_es:
+                # Si no hay parámetro hl, agregarlo
+                if '?' in url_es:
+                    url_es += '&hl=es'
+                else:
+                    url_es += '?hl=es'
+            
+            # Navegar a la URL en español
+            driver.get(url_es)
             time.sleep(2)
+
             
             # Verificar que el driver sigue funcionando
             _ = driver.title
