@@ -51,10 +51,11 @@ CATEGORIAS = [
 
 # Zonas generales de Neuquén
 ZONAS = [
-    "Zona Oeste Neuquén",
-    "Zona Centro Neuquén", 
-    "Zona Alto Neuquén",
-    "cerca del río",
+    "Zona Oeste Neuquén Capital",
+    "Centro Neuquén Capital", 
+    "Zona Alto Neuquén Capital",
+    "Zona Este Neuquén Capital",
+    "cerca del río en Neuquén Capital",
 ]
 
 def generar_busquedas():
