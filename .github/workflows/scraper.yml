@@ -27,7 +27,7 @@ jobs:
       
       - name: Instalar dependencias
         run: |
-          pip install selenium webdriver-manager openai beautifulsoup4
+          pip install selenium webdriver-manager openai beautifulsoup4 requests
       
       # Descargar estado previo del repo privado (para continuar donde quedamos)
       - name: Descargar estado previo
@@ -64,7 +64,13 @@ jobs:
       - name: Ejecutar scraper de reseñas
         run: python opiniones-scraper.py
       
-      # ETAPA 4: Subir resultados al repo privado
+      # ETAPA 4: Enviar notificación por Discord
+      - name: Enviar notificación
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python notificador.py
+      
+      # ETAPA 5: Subir resultados al repo privado
       - name: Subir resultados al repo privado
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
@@ -84,6 +90,7 @@ jobs:
           cp lugares_rechazados.csv private-repo/data/ 2>/dev/null || true
           cp reviews_neuquen.csv private-repo/data/ 2>/dev/null || true
           cp estado_reviews.csv private-repo/data/ 2>/dev/null || true
+          cp resumen_run.json private-repo/data/ 2>/dev/null || true
           
           # Copiar logs
           cp logs/*.log private-repo/logs/ 2>/dev/null || true
@@ -101,3 +108,4 @@ jobs:
           git add .
           git commit -m "Actualización automática - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios para commitear"
           git push
+

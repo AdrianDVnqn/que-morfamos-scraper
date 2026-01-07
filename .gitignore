@@ -4,8 +4,10 @@ lugares_validados.csv
 lugares_rechazados.csv
 reviews_neuquen.csv
 estado_reviews.csv
+resumen_run.json
 links.txt
 logs/
+
 
 
 # Python
