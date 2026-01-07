@@ -2,8 +2,8 @@ name: Scraper de Restaurantes
 
 on:
   schedule:
-    # Ejecutar cada lunes a las 3:00 AM UTC
-    - cron: '0 3 * * 1'
+    # Ejecutar el día 1 y 15 de cada mes a las 3:00 AM UTC (cada ~2 semanas)
+    - cron: '0 3 1,15 * *'
   workflow_dispatch:  # Permite ejecución manual
 
 jobs:
