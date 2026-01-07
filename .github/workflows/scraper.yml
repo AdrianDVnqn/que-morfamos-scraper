@@ -34,11 +34,12 @@ jobs:
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo || true
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo || true
           # Copiar archivos de estado si existen
           cp private-repo/data/lugares_validados.csv . 2>/dev/null || true
           cp private-repo/data/estado_reviews.csv . 2>/dev/null || true
           cp private-repo/data/reviews_neuquen.csv . 2>/dev/null || true
+
       
       # ETAPA 1: Scraping de lugares (solo si no hay lugares_validados)
       - name: Ejecutar scraper de lugares
@@ -77,7 +78,7 @@ jobs:
         run: |
           # Si private-repo no existe, clonarlo
           if [ ! -d private-repo ]; then
-            git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo
+            git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
           fi
           
           # Crear directorios
