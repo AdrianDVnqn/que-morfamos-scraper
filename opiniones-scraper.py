@@ -142,34 +142,57 @@ def cargar_estado():
         with open(ARCHIVO_ESTADO, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                estados[row['url']] = row['estado']
+                estados[row['url']] = {
+                    'estado': row['estado'],
+                    'intentos': int(row.get('intentos', 1))
+                }
         return estados
     return {}
 
-def actualizar_estado(url, estado, mensaje=""):
-    """Actualiza el estado de una URL (EXITO, SIN_OPINIONES, ERROR_TEMPORAL, TIMEOUT)"""
+def actualizar_estado(url, estado, mensaje="", incrementar_intento=False):
+    """Actualiza el estado de una URL con conteo de intentos"""
     ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Leer estado actual
+    filas = []
+    intentos_previos = 0
+    if os.path.exists(ARCHIVO_ESTADO):
+        with open(ARCHIVO_ESTADO, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['url'] != url:
+                    filas.append(row)
+                else:
+                    intentos_previos = int(row.get('intentos', 0))
+    
+    # Calcular intentos
+    if estado == "RETRY_PESTANA":
+        intentos = intentos_previos + 1
+        # Si ya tiene 3 intentos, marcar como definitivo
+        if intentos >= 3:
+            estado = "SIN_OPINIONES_DEFINITIVO"
+            mensaje = f"Sin opiniones después de {intentos} intentos"
+    elif estado == "EXITO":
+        intentos = intentos_previos  # Mantener conteo
+    else:
+        intentos = intentos_previos + 1 if incrementar_intento else intentos_previos
+    
     nueva_fila = {
         'url': url,
         'estado': estado,
         'fecha': ahora,
-        'mensaje': str(mensaje).replace('\n', ' ').strip()[:200]
+        'mensaje': str(mensaje).replace('\n', ' ').strip()[:200],
+        'intentos': intentos
     }
-    
-    # Leer estado actual
-    filas = []
-    if os.path.exists(ARCHIVO_ESTADO):
-        with open(ARCHIVO_ESTADO, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            filas = [row for row in reader if row['url'] != url]
     
     filas.append(nueva_fila)
     
     # Escribir
     with open(ARCHIVO_ESTADO, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['url', 'estado', 'fecha', 'mensaje'])
+        writer = csv.DictWriter(f, fieldnames=['url', 'estado', 'fecha', 'mensaje', 'intentos'])
         writer.writeheader()
         writer.writerows(filas)
+
 
 def generar_id_review(url, autor, fecha, texto):
     """
@@ -668,11 +691,13 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             driver.refresh()
             time.sleep(5)
             if not forzar_entrada_pestana_opiniones(driver):
-                logger.info("   ❌ No tiene pestaña de Opiniones")
-                estado = "SIN_OPINIONES"
-                mensaje = "No tiene pestaña de Opiniones"
+                # Marcar para reintento (no como estado final)
+                logger.info("   ⚠️ No encontró pestaña - marcado para reintento")
+                estado = "RETRY_PESTANA"
+                mensaje = "No encontró pestaña de Opiniones - reintentar"
                 actualizar_estado(url, estado, mensaje)
                 return [], estado
+
 
         # Ordenar por recientes
         ordenar_por_recientes(driver)
@@ -836,16 +861,35 @@ if __name__ == "__main__":
     # Cargar estado de URLs procesadas
     estado_urls = cargar_estado()
     
-    # Filtrar: solo procesar pendientes (no EXITO ni SIN_OPINIONES)
+    # Filtrar: solo procesar pendientes (no EXITO ni SIN_OPINIONES_DEFINITIVO)
     pendientes = []
+    exitos = 0
+    sin_opiniones_def = 0
+    
     for lugar in lugares:
         url = lugar['link']
-        estado = estado_urls.get(url)
-        if estado not in ['EXITO', 'SIN_OPINIONES']:
-            pendientes.append(lugar)
+        data_estado = estado_urls.get(url)
+        
+        status = None
+        if data_estado:
+            if isinstance(data_estado, dict):
+                status = data_estado.get('estado')
+            else:
+                status = str(data_estado)
+        
+        if status == 'EXITO':
+            exitos += 1
+            continue
+            
+        if status == 'SIN_OPINIONES_DEFINITIVO':
+            sin_opiniones_def += 1
+            continue
+            
+        # Cualquier otro estado (None, ERROR_TEMPORAL, RETRY_PESTANA, SIN_OPINIONES viejo) se procesa
+        pendientes.append(lugar)
     
-    logger.info(f"Ya procesados con éxito: {sum(1 for e in estado_urls.values() if e == 'EXITO')}")
-    logger.info(f"Sin opiniones (skip): {sum(1 for e in estado_urls.values() if e == 'SIN_OPINIONES')}")
+    logger.info(f"Ya procesados con éxito: {exitos}")
+    logger.info(f"Sin opiniones definitivo (skip): {sin_opiniones_def}")
     logger.info(f"Pendientes: {len(pendientes)}")
     logger.info("-" * 40)
     
