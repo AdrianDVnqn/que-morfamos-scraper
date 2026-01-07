@@ -2,8 +2,11 @@
 lugares_encontrados.csv
 lugares_validados.csv
 lugares_rechazados.csv
+reviews_neuquen.csv
+estado_reviews.csv
 links.txt
 logs/
+
 
 # Python
 __pycache__/

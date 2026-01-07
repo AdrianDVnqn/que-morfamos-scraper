@@ -9,6 +9,7 @@ on:
 jobs:
   scrape-and-validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 horas máximo
     
     steps:
       - name: Checkout código del scraper
@@ -26,27 +27,54 @@ jobs:
       
       - name: Instalar dependencias
         run: |
-          pip install selenium webdriver-manager openai
+          pip install selenium webdriver-manager openai beautifulsoup4
       
-      # ETAPA 1: Scraping de lugares
-      - name: Ejecutar scraper
-        run: python restaurant-scraper.py
+      # Descargar estado previo del repo privado (para continuar donde quedamos)
+      - name: Descargar estado previo
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo || true
+          # Copiar archivos de estado si existen
+          cp private-repo/data/lugares_validados.csv . 2>/dev/null || true
+          cp private-repo/data/estado_reviews.csv . 2>/dev/null || true
+          cp private-repo/data/reviews_neuquen.csv . 2>/dev/null || true
       
-      # ETAPA 2: Enriquecimiento y validación con LLM
+      # ETAPA 1: Scraping de lugares (solo si no hay lugares_validados)
+      - name: Ejecutar scraper de lugares
+        run: |
+          if [ ! -f lugares_validados.csv ]; then
+            python restaurant-scraper.py
+          else
+            echo "Usando lugares_validados.csv existente"
+          fi
+      
+      # ETAPA 2: Enriquecimiento y validación con LLM (solo si no hay lugares_validados)
       - name: Ejecutar validador
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: python enrichment-validator.py
+        run: |
+          if [ ! -f lugares_validados.csv ]; then
+            python enrichment-validator.py
+          else
+            echo "Validación ya completada"
+          fi
       
-      # ETAPA 3: Subir resultados al repo privado
+      # ETAPA 3: Scraper de reseñas (incremental)
+      - name: Ejecutar scraper de reseñas
+        run: python opiniones-scraper.py
+      
+      # ETAPA 4: Subir resultados al repo privado
       - name: Subir resultados al repo privado
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          # Clonar el repo privado
-          git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo
+          # Si private-repo no existe, clonarlo
+          if [ ! -d private-repo ]; then
+            git clone https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git private-repo
+          fi
           
-          # Crear directorios si no existen
+          # Crear directorios
           mkdir -p private-repo/data
           mkdir -p private-repo/logs
           
@@ -54,6 +82,8 @@ jobs:
           cp lugares_encontrados.csv private-repo/data/ 2>/dev/null || true
           cp lugares_validados.csv private-repo/data/ 2>/dev/null || true
           cp lugares_rechazados.csv private-repo/data/ 2>/dev/null || true
+          cp reviews_neuquen.csv private-repo/data/ 2>/dev/null || true
+          cp estado_reviews.csv private-repo/data/ 2>/dev/null || true
           
           # Copiar logs
           cp logs/*.log private-repo/logs/ 2>/dev/null || true
@@ -62,6 +92,7 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           cp logs/scraper_run.log "private-repo/logs/scraper_${TIMESTAMP}.log" 2>/dev/null || true
           cp logs/enrichment_run.log "private-repo/logs/enrichment_${TIMESTAMP}.log" 2>/dev/null || true
+          cp logs/reviews_run.log "private-repo/logs/reviews_${TIMESTAMP}.log" 2>/dev/null || true
           
           # Commit y push
           cd private-repo
