@@ -375,7 +375,30 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
     
     logger.info(f"[{indice}/{total}] Procesando: {nombre[:40]}...")
     
-    driver = crear_driver()
+    # Intentar crear driver con retry
+    driver = None
+    max_intentos = 3
+    for intento in range(max_intentos):
+        try:
+            driver = crear_driver()
+            driver.get(url)
+            time.sleep(2)  # Esperar a que cargue
+            # Verificar que el driver sigue funcionando
+            _ = driver.title
+            break  # Éxito, salir del loop
+        except Exception as e:
+            logger.warning(f"   Intento {intento + 1}/{max_intentos} falló: {str(e)[:50]}")
+            try:
+                driver.quit()
+            except:
+                pass
+            if intento < max_intentos - 1:
+                time.sleep(3)  # Pausa antes de reintentar
+            else:
+                logger.error(f"   Falló después de {max_intentos} intentos")
+                actualizar_estado(url, "ERROR_TEMPORAL", f"Driver crash: {str(e)[:100]}")
+                return [], "ERROR_TEMPORAL"
+    
     reviews_data = []
     estado = "ERROR_TEMPORAL"
     mensaje = ""
@@ -396,11 +419,11 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
     metadata['longitud'] = lon
 
     try:
-        driver.get(url)
         try: 
             driver.execute_script("document.body.style.zoom='50%'")
         except: 
             pass
+
 
         # Esperar carga
         try:
