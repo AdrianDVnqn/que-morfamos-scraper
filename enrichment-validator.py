@@ -106,85 +106,89 @@ def extraer_categoria_de_lugar(driver, url, max_intentos=2):
     
     return None, False
 
-
-
-def validar_con_llm(lugares_con_categoria, batch_size=10):
+def validar_categorias_con_llm(categorias_unicas):
     """
-    Usa DeepSeek para validar si las categorías corresponden a lugares gastronómicos.
-    Procesa en batches para eficiencia.
+    Valida las categorías ÚNICAS con el LLM.
+    Retorna un dict {categoria: {"es_valido": bool, "razon": str}}
+    
+    Esto es MUCHO más eficiente: en lugar de 1200 llamadas, hacemos 1 sola.
     """
     if not client:
-        logger.warning("LLM no disponible, marcando todos como válidos por defecto.")
-        return {l["link"]: {"es_valido": True, "razon": "Sin validación LLM"} for l in lugares_con_categoria}
+        logger.warning("LLM no disponible, marcando todas las categorías como válidas.")
+        return {cat: {"es_valido": True, "razon": "Sin validación LLM"} for cat in categorias_unicas}
     
-    resultados = {}
+    # Filtrar categorías vacías o None
+    categorias = [c for c in categorias_unicas if c and c != "Sin categoría"]
     
-    # Procesar en batches
-    for i in range(0, len(lugares_con_categoria), batch_size):
-        batch = lugares_con_categoria[i:i + batch_size]
-        
-        # Construir el prompt
-        items = "\n".join([
-            f'{j+1}. Nombre: "{l["nombre"]}" | Categoría: "{l["categoria"]}"'
-            for j, l in enumerate(batch)
-        ])
-        
-        prompt = f"""Analiza cada lugar y determina si es un establecimiento GASTRONÓMICO 
-(restaurante, bar, cafetería, heladería, pizzería, parrilla, delivery de comida, etc.).
+    if not categorias:
+        logger.warning("No hay categorías para validar")
+        return {}
+    
+    logger.info(f"Validando {len(categorias)} categorías únicas con LLM...")
+    
+    # Construir lista de categorías
+    items = "\n".join([f'{i+1}. "{cat}"' for i, cat in enumerate(categorias)])
+    
+    prompt = f"""Analiza cada CATEGORÍA de Google Maps y determina si corresponde a un establecimiento GASTRONÓMICO.
 
 IMPORTANTE: 
 - Responde SOLO con un JSON válido, sin texto adicional.
-- Un lugar es gastronómico si su función principal es vender comida o bebidas para consumir.
-- NO son gastronómicos: balnearios, tiendas de ropa, farmacias, estaciones de servicio (a menos que sea su minimarket), supermercados, etc.
+- Es gastronómico si su función principal es vender comida o bebidas para consumir.
+- SÍ son gastronómicos: Restaurante, Bar, Cafetería, Heladería, Pizzería, Parrilla, 
+  Hamburguesería, Pub, Cervecería, Pastelería, Rotisería, Sushi, Delivery de comida, etc.
+- NO son gastronómicos: Balneario, Tienda de ropa, Farmacia, Estación de servicio, 
+  Supermercado, Hotel, Agencia de viajes, Gimnasio, Peluquería, Spa, etc.
 
-Lugares a analizar:
+Categorías a analizar:
 {items}
 
 Responde con este formato JSON exacto:
 [
-  {{"indice": 1, "es_gastronomico": true, "razon": "Es un restaurante"}},
-  {{"indice": 2, "es_gastronomico": false, "razon": "Es un balneario, no vende comida"}}
+  {{"indice": 1, "categoria": "Restaurante", "es_gastronomico": true, "razon": "Vende comida"}},
+  {{"indice": 2, "categoria": "Balneario", "es_gastronomico": false, "razon": "Es un lugar de recreación, no vende comida"}}
 ]"""
 
-        try:
-            response = client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": "Eres un asistente que clasifica lugares. Responde SOLO con JSON válido."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1
-            )
-            texto = response.choices[0].message.content.strip()
-            
-            # Limpiar el texto si viene con markdown
-            if texto.startswith("```"):
-                texto = texto.split("```")[1]
-                if texto.startswith("json"):
-                    texto = texto[4:]
-            
-            validaciones = json.loads(texto)
-            
-            for v in validaciones:
-                idx = v["indice"] - 1
-                if 0 <= idx < len(batch):
-                    lugar = batch[idx]
-                    resultados[lugar["link"]] = {
-                        "es_valido": v["es_gastronomico"],
-                        "razon": v["razon"]
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Error en validación LLM: {e}")
-            # En caso de error, marcar como válidos para no perder datos
-            for l in batch:
-                if l["link"] not in resultados:
-                    resultados[l["link"]] = {"es_valido": True, "razon": "Error en validación, se asume válido"}
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "Eres un asistente que clasifica categorías de establecimientos. Responde SOLO con JSON válido."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1
+        )
+        texto = response.choices[0].message.content.strip()
         
-        # Pausa entre batches para no exceder rate limits
-        time.sleep(1)
-    
-    return resultados
+        # Limpiar markdown si viene
+        if texto.startswith("```"):
+            texto = texto.split("```")[1]
+            if texto.startswith("json"):
+                texto = texto[4:]
+        
+        validaciones = json.loads(texto)
+        
+        # Construir dict de resultados
+        resultados = {}
+        for v in validaciones:
+            idx = v["indice"] - 1
+            if 0 <= idx < len(categorias):
+                categoria = categorias[idx]
+                resultados[categoria] = {
+                    "es_valido": v["es_gastronomico"],
+                    "razon": v["razon"]
+                }
+        
+        logger.info(f"   ✓ {sum(1 for r in resultados.values() if r['es_valido'])} categorías gastronómicas")
+        logger.info(f"   ✗ {sum(1 for r in resultados.values() if not r['es_valido'])} categorías no gastronómicas")
+        
+        return resultados
+                
+    except Exception as e:
+        logger.error(f"Error en validación LLM: {e}")
+        # En caso de error, marcar todas como válidas para no perder datos
+        return {cat: {"es_valido": True, "razon": "Error LLM - marcado como válido"} for cat in categorias}
+
+
 
 
 def procesar_lugares():
@@ -253,12 +257,17 @@ def procesar_lugares():
     finally:
         driver.quit()
     
-    # Etapa 2: Validar con LLM
+    # Etapa 2: Validar CATEGORÍAS ÚNICAS con LLM (¡mucho más eficiente!)
     logger.info("=" * 50)
-    logger.info("ETAPA 2: Validando con LLM")
+    logger.info("ETAPA 2: Validando CATEGORÍAS ÚNICAS con LLM")
     logger.info("=" * 50)
     
-    validaciones = validar_con_llm(lugares_con_categoria)
+    # Extraer categorías únicas
+    categorias_unicas = set(l["categoria"] for l in lugares_con_categoria)
+    logger.info(f"Categorías únicas encontradas: {len(categorias_unicas)}")
+    
+    # Validar categorías (1 sola llamada al LLM)
+    validaciones_categorias = validar_categorias_con_llm(categorias_unicas)
     
     # Etapa 3: Separar y guardar resultados
     logger.info("=" * 50)
@@ -282,8 +291,12 @@ def procesar_lugares():
         }
         rechazados.append(registro)
     
+    # Aplicar validación de categoría a cada lugar
     for lugar in lugares_con_categoria:
-        validacion = validaciones.get(lugar["link"], {"es_valido": True, "razon": "No validado"})
+        categoria = lugar["categoria"]
+        # Buscar validación de esta categoría
+        validacion = validaciones_categorias.get(categoria, {"es_valido": True, "razon": "Categoría no validada"})
+
         
         registro = {
             "link": lugar["link"],
