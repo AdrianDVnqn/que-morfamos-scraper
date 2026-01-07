@@ -625,10 +625,12 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             pass
 
         # Esperar carga
+        logger.info("   ⏳ Esperando carga de página...")
         try:
             WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
             WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "button[role='tab']")))
         except TimeoutException:
+            logger.info("   ⚠️ Timeout, refrescando...")
             driver.refresh()
             time.sleep(5)
 
@@ -641,10 +643,12 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             pass
 
         # Navegar a pestaña Opiniones
+        logger.info("   🔍 Buscando pestaña Opiniones...")
         if not forzar_entrada_pestana_opiniones(driver):
             driver.refresh()
             time.sleep(5)
             if not forzar_entrada_pestana_opiniones(driver):
+                logger.info("   ❌ No tiene pestaña de Opiniones")
                 estado = "SIN_OPINIONES"
                 mensaje = "No tiene pestaña de Opiniones"
                 actualizar_estado(url, estado, mensaje)
