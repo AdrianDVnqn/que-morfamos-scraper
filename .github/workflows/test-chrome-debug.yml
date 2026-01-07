@@ -22,71 +22,73 @@ jobs:
         with:
           chrome-version: stable
       
-      - name: Verificar Chrome
-        run: |
-          echo "=== Versión de Chrome ==="
-          google-chrome --version
-          which google-chrome
-          
-          echo "=== Info del sistema ==="
-          free -h
-          df -h
-          
       - name: Instalar dependencias
         run: |
           pip install selenium webdriver-manager beautifulsoup4
       
-      - name: Test Chrome con shm-size configurado
+      - name: Test con URL real de restaurante
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
+          # Descargar lugares_validados.csv
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          cp private-repo/data/lugares_validados.csv . 2>/dev/null || echo "No hay CSV"
+          
           python -c "
           from selenium import webdriver
           from selenium.webdriver.chrome.service import Service
           from webdriver_manager.chrome import ChromeDriverManager
+          import csv
           import time
 
-          print('=== Test 1: Configuración mínima ===')
+          # Leer primera URL del CSV
+          url = None
+          try:
+              with open('lugares_validados.csv', 'r', encoding='utf-8') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      url = row.get('link')
+                      nombre = row.get('nombre', 'Desconocido')
+                      break
+          except Exception as e:
+              print(f'Error leyendo CSV: {e}')
+              url = 'https://www.google.com/maps'
+              nombre = 'Fallback'
+          
+          print(f'=== Probando con: {nombre} ===')
+          print(f'URL: {url[:80]}...')
+          
           options = webdriver.ChromeOptions()
           options.add_argument('--headless')
           options.add_argument('--no-sandbox')
           options.add_argument('--disable-dev-shm-usage')
+          options.add_argument('--disable-gpu')
+          options.add_argument('--window-size=1920,1080')
           
           try:
+              print('Creando driver...')
               driver = webdriver.Chrome(
                   service=Service(ChromeDriverManager().install()), 
                   options=options
               )
-              print('✓ Chrome iniciado')
-              driver.get('https://www.google.com')
-              print(f'✓ Google cargado: {driver.title}')
+              driver.set_page_load_timeout(60)
+              print('✓ Driver creado')
+              
+              print('Navegando a URL...')
+              driver.get(url)
+              print(f'✓ Navegación exitosa')
+              print(f'Title: {driver.title}')
+              
+              print('Esperando 5 segundos...')
+              time.sleep(5)
+              
+              print(f'Page source length: {len(driver.page_source)}')
+              
               driver.quit()
-              print('✓ Test 1 PASÓ')
+              print('✓ Test PASÓ')
+              
           except Exception as e:
-              print(f'❌ Test 1 FALLÓ: {e}')
-          
-          time.sleep(2)
-          
-          print('')
-          print('=== Test 2: Navegando a Maps ===')
-          options2 = webdriver.ChromeOptions()
-          options2.add_argument('--headless')
-          options2.add_argument('--no-sandbox')
-          options2.add_argument('--disable-dev-shm-usage')
-          options2.add_argument('--disable-gpu')
-          options2.add_argument('--window-size=1920,1080')
-          
-          try:
-              driver = webdriver.Chrome(
-                  service=Service(ChromeDriverManager().install()), 
-                  options=options2
-              )
-              print('✓ Chrome iniciado')
-              driver.set_page_load_timeout(30)
-              driver.get('https://www.google.com/maps/place/Buenos+Aires')
-              print(f'✓ Maps cargado')
-              print(f'  URL: {driver.current_url[:50]}...')
-              time.sleep(3)
-              driver.quit()
-              print('✓ Test 2 PASÓ')
-          except Exception as e:
-              print(f'❌ Test 2 FALLÓ: {e}')
+              print(f'❌ ERROR: {e}')
+              import traceback
+              traceback.print_exc()
           "
