@@ -1,0 +1,122 @@
+name: Asignar Barrios
+
+on:
+  workflow_dispatch:  # Solo ejecución manual
+
+jobs:
+  asignar-barrios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar dependencias básicas
+        run: pip install requests
+      
+      # Notificación de inicio
+      - name: Notificar inicio
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              msg = f'''🏘️ **INICIANDO - Asignación de Barrios**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              
+              Asignando barrios, zonas y cerca_rio a reseñas...'''
+              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x9b59b6}]})
+          "
+      
+      - name: Instalar dependencias geoespaciales
+        run: |
+          pip install pandas geopandas
+      
+      # Descargar datos del repo privado
+      - name: Descargar datos
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          cp private-repo/data/reviews_neuquen.csv . 2>/dev/null || echo "No hay reviews_neuquen.csv"
+          
+          if [ ! -f reviews_neuquen.csv ]; then
+            echo "ERROR: No existe reviews_neuquen.csv"
+            echo "Primero ejecutá el workflow 'Actualizar Reseñas'"
+            exit 1
+          fi
+          
+          echo "✓ Reseñas encontradas: $(wc -l < reviews_neuquen.csv) líneas"
+      
+      # Ejecutar asignación de barrios
+      - name: Asignar barrios
+        run: python asignar-barrios.py
+      
+      # Subir resultados
+      - name: Subir resultados
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          cp reviews_neuquen.csv private-repo/data/
+          
+          cd private-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Barrios asignados - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
+          git push
+      
+      # Notificación de éxito
+      - name: Notificar éxito
+        if: success()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime, csv
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if not webhook: exit(0)
+          
+          # Contar reseñas con barrio
+          con_barrio = sin_barrio = 0
+          try:
+              with open('reviews_neuquen.csv', 'r') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      if row.get('barrio'): con_barrio += 1
+                      else: sin_barrio += 1
+          except: pass
+          
+          msg = f'''✅ **COMPLETADO - Asignación de Barrios**
+          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+          
+          🏘️ Reseñas con barrio: **{con_barrio}**
+          ❓ Sin barrio asignado: **{sin_barrio}**'''
+          
+          requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x2ecc71}]})
+          "
+      
+      # Notificación de error
+      - name: Notificar error
+        if: failure()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              msg = f'''❌ **ERROR - Asignación de Barrios**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              
+              Revisar logs en GitHub Actions.'''
+              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
+          "
