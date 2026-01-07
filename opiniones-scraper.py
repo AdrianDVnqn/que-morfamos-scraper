@@ -1026,7 +1026,13 @@ if __name__ == "__main__":
     logger.info("RESUMEN DE EJECUCIÓN")
     logger.info("=" * 60)
     logger.info(f"Tiempo total: {tiempo_total/60:.1f} minutos")
-    logger.info(f"Lugares procesados: {procesados}")
+    logger.info(f"Lugares procesados: {procesados} / {len(pendientes)}")
     logger.info(f"Reseñas extraídas: {total_reviews}")
     logger.info(f"Archivo de salida: {ARCHIVO_REVIEWS}")
     logger.info("=" * 60)
+    
+    # Si quedan pendientes (no se procesaron todos), crear archivo flag para que el workflow se reinicie
+    if procesados < len(pendientes):
+        logger.info("⚠️ Quedan lugares pendientes: creando flag para continuar workflow")
+        with open(".continue", "w") as f:
+            f.write("true")

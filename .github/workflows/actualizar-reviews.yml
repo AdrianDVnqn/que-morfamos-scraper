@@ -106,31 +106,54 @@ jobs:
           webhook = os.environ.get('DISCORD_WEBHOOK_URL')
           if not webhook: exit(0)
 
-          total_reviews = exitos = sin_opiniones = errores = 0
-          try:
-              with open('reviews_neuquen.csv', 'r') as f:
-                  total_reviews = sum(1 for _ in csv.reader(f)) - 1
-          except: pass
-          try:
-              with open('estado_reviews.csv', 'r') as f:
-                  reader = csv.DictReader(f)
-                  for row in reader:
-                      if row.get('estado') == 'EXITO': exitos += 1
-                      elif row.get('estado') == 'SIN_OPINIONES': sin_opiniones += 1
-                      else: errores += 1
-          except: pass
+          if os.path.exists('.continue'):
+              msg = f'''🔄 **CONTINUANDO - Workflow Reiniciado**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              
+              El tiempo límite fue alcanzado, pero quedan lugares pendientes.
+              Se iniciará una nueva ejecución automáticamente.'''
+              color = 0x3498db  # Azul
+          else:
+              total_reviews = exitos = sin_opiniones = errores = 0
+              try:
+                  with open('reviews_neuquen.csv', 'r') as f:
+                      total_reviews = sum(1 for _ in csv.reader(f)) - 1
+              except: pass
+              try:
+                  with open('estado_reviews.csv', 'r') as f:
+                      reader = csv.DictReader(f)
+                      for row in reader:
+                          est = row.get('estado')
+                          if est == 'EXITO': exitos += 1
+                          elif est == 'SIN_OPINIONES' or est == 'SIN_OPINIONES_DEFINITIVO': sin_opiniones += 1
+                          else: errores += 1
+              except: pass
 
-          msg = f'''✅ **COMPLETADO - Actualización de Reseñas**
-          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+              msg = f'''✅ **COMPLETADO - Actualización de Reseñas**
+              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
 
-          📝 Total reseñas: **{total_reviews}**
-          ✅ Lugares procesados: **{exitos}**
-          🚫 Sin opiniones: **{sin_opiniones}**
-          ⚠️ Con errores: **{errores}**'''
+              📝 Total reseñas: **{total_reviews}**
+              ✅ Lugares procesados: **{exitos}**
+              🚫 Sin opiniones: **{sin_opiniones}**
+              ⚠️ Pendientes/Errores: **{errores}**'''
+              color = 0x2ecc71  # Verde
 
-          requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x2ecc71}]})
-          print('✓ Notificación de éxito enviada')
+          requests.post(webhook, json={'embeds': [{'description': msg, 'color': color}]})
+          print('✓ Notificación enviada')
           "
+
+      # AUTO-CONTINUAR SI QUEDAN PENDIENTES
+      - name: Auto-continuar si hay pendientes
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f .continue ]; then
+            echo "⚠️ Quedan pendientes: Reiniciando workflow..."
+            gh workflow run actualizar-reviews.yml
+          else
+            echo "✓ Todo completado. No se requiere reinicio."
+          fi
       
       # NOTIFICACIÓN DE ERROR
       - name: Notificar error
@@ -145,7 +168,6 @@ jobs:
               msg = f'''❌ **ERROR - Actualización de Reseñas**
               📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
               
-              El workflow falló. Revisar los logs en GitHub Actions.'''
+              El workflow falló inesperadamente. Revisar logs.'''
               requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
-              print('✓ Notificación de error enviada')
           "
