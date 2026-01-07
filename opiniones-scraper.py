@@ -676,6 +676,10 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             
             conteo_actual = len(driver.find_elements(By.CSS_SELECTOR, "div.jftiEf"))
             
+            # Log de progreso cada 10 reseñas
+            if conteo_actual > 0 and conteo_actual != ultimo_conteo and conteo_actual % 10 == 0:
+                logger.info(f"   📜 Cargando reseñas: {conteo_actual}/{target}")
+            
             if conteo_actual >= target:
                 break
             
@@ -697,6 +701,7 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
                 pass
             
             time.sleep(1)
+
         
         # Expandir reseñas largas
         expandir_resenas_largas(driver)
