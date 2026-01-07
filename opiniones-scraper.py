@@ -74,6 +74,64 @@ def extraer_coordenadas_url(url):
     
     return None, None
 
+
+def parsear_fecha_relativa(fecha_texto):
+    """
+    Convierte fechas relativas de Google Maps a fechas absolutas aproximadas.
+    Ejemplos: "Hace 1 día", "una semana atrás", "Hace 3 meses", "un año atrás"
+    Retorna: (fecha_absoluta_str, fecha_original)
+    """
+    if not fecha_texto:
+        return None, None
+    
+    fecha_lower = fecha_texto.lower().strip()
+    ahora = datetime.datetime.now()
+    
+    # Patrones para números
+    numeros = {
+        'un': 1, 'una': 1, 'uno': 1,
+        'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5,
+        'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10,
+        'once': 11, 'doce': 12
+    }
+    
+    # Extraer número
+    match_num = re.search(r'(\d+)', fecha_lower)
+    if match_num:
+        cantidad = int(match_num.group(1))
+    else:
+        # Buscar palabras numéricas
+        cantidad = 1
+        for palabra, num in numeros.items():
+            if palabra in fecha_lower:
+                cantidad = num
+                break
+    
+    # Determinar unidad de tiempo y calcular fecha
+    fecha_calculada = None
+    
+    if 'día' in fecha_lower or 'dia' in fecha_lower:
+        fecha_calculada = ahora - datetime.timedelta(days=cantidad)
+    elif 'semana' in fecha_lower:
+        fecha_calculada = ahora - datetime.timedelta(weeks=cantidad)
+    elif 'mes' in fecha_lower or 'meses' in fecha_lower:
+        # Aproximación: 30 días por mes
+        fecha_calculada = ahora - datetime.timedelta(days=cantidad * 30)
+    elif 'año' in fecha_lower or 'años' in fecha_lower:
+        # Aproximación: 365 días por año
+        fecha_calculada = ahora - datetime.timedelta(days=cantidad * 365)
+    elif 'hora' in fecha_lower:
+        fecha_calculada = ahora - datetime.timedelta(hours=cantidad)
+    elif 'minuto' in fecha_lower:
+        fecha_calculada = ahora - datetime.timedelta(minutes=cantidad)
+    
+    if fecha_calculada:
+        return fecha_calculada.strftime('%Y-%m-%d'), fecha_texto
+    
+    # Si no se pudo parsear, devolver None
+    return None, fecha_texto
+
+
 # ==========================================
 # 1. SISTEMA DE ESTADO INCREMENTAL
 # ==========================================
@@ -167,7 +225,7 @@ def guardar_reviews(reviews_data):
     es_nuevo = not os.path.exists(ARCHIVO_REVIEWS)
     campos = ['restaurante', 'categoria', 'rating_gral', 'total_reviews_google', 
               'direccion', 'latitud', 'longitud', 'autor', 'rating_user', 
-              'texto', 'fecha', 'url', 'fecha_scraping', 'review_id']
+              'texto', 'fecha_aproximada', 'fecha_original', 'url', 'fecha_scraping', 'review_id']
     
     with open(ARCHIVO_REVIEWS, 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=campos)
@@ -436,10 +494,13 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
             texto = t_texto.text.strip() if t_texto else ""
             
             t_fecha = bloque.find('span', class_='rsqaWe')
-            fecha = t_fecha.text.strip() if t_fecha else None
+            fecha_texto = t_fecha.text.strip() if t_fecha else None
             
-            # Generar ID único para esta reseña
-            review_id = generar_id_review(url, autor, fecha, texto)
+            # Convertir fecha relativa a absoluta
+            fecha_aproximada, fecha_original = parsear_fecha_relativa(fecha_texto)
+            
+            # Generar ID único para esta reseña (usando fecha original para consistencia)
+            review_id = generar_id_review(url, autor, fecha_texto, texto)
             
             # Verificar si ya existe
             if review_id in ids_existentes:
@@ -458,7 +519,8 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
                 'autor': autor,
                 'rating_user': None,
                 'texto': texto,
-                'fecha': fecha,
+                'fecha_aproximada': fecha_aproximada,
+                'fecha_original': fecha_original,
                 'url': url,
                 'fecha_scraping': fecha_scraping,
                 'review_id': review_id
