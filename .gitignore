@@ -1,5 +1,7 @@
 # Archivos generados por el scraper (se suben al repo privado)
 lugares_encontrados.csv
+lugares_validados.csv
+lugares_rechazados.csv
 links.txt
 logs/
 
