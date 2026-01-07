@@ -50,7 +50,7 @@ else:
 def extraer_categoria_de_lugar(driver, url, max_intentos=2):
     """
     Visita un lugar en Google Maps y extrae su categoría.
-    Retorna la categoría o None si no se pudo extraer.
+    Retorna: (categoria, esta_cerrado)
     """
     for intento in range(max_intentos):
         try:
@@ -59,6 +59,16 @@ def extraer_categoria_de_lugar(driver, url, max_intentos=2):
             
             # Esperar a que cargue la página
             time.sleep(3)
+            
+            # Verificar si está cerrado permanentemente
+            esta_cerrado = False
+            try:
+                page_text = driver.page_source.lower()
+                if "permanently closed" in page_text or "cerrado permanentemente" in page_text:
+                    esta_cerrado = True
+                    logger.info(f"   ⚠️ Lugar cerrado permanentemente detectado")
+            except:
+                pass
             
             # Buscar el botón de categoría (puede tener diferentes selectores)
             selectores = [
@@ -72,30 +82,30 @@ def extraer_categoria_de_lugar(driver, url, max_intentos=2):
                     elem = driver.find_element(By.CSS_SELECTOR, selector)
                     categoria = elem.text.strip()
                     if categoria:
-                        return categoria
+                        return categoria, esta_cerrado
                 except:
                     continue
             
             # Backup: buscar en spans con clase específica
             try:
-                # A veces la categoría está en un span dentro del header
                 spans = driver.find_elements(By.CSS_SELECTOR, "span.DkEaL, span.mgr77e")
                 for span in spans:
                     texto = span.text.strip()
-                    if texto and len(texto) < 50:  # Categorías suelen ser cortas
-                        return texto
+                    if texto and len(texto) < 50:
+                        return texto, esta_cerrado
             except:
                 pass
             
             logger.warning(f"No se encontró categoría para: {url}")
-            return None
+            return None, esta_cerrado
             
         except Exception as e:
             logger.error(f"Error al extraer categoría (intento {intento + 1}): {e}")
             if intento < max_intentos - 1:
                 time.sleep(2)
     
-    return None
+    return None, False
+
 
 
 def validar_con_llm(lugares_con_categoria, batch_size=10):
@@ -216,17 +226,29 @@ def procesar_lugares():
         logger.info("=" * 50)
         
         lugares_con_categoria = []
+        lugares_cerrados = []
+        
         for i, lugar in enumerate(lugares, 1):
             logger.info(f"Procesando {i}/{len(lugares)}: {lugar['nombre'][:40]}...")
             
-            categoria = extraer_categoria_de_lugar(driver, lugar["link"])
+            categoria, esta_cerrado = extraer_categoria_de_lugar(driver, lugar["link"])
             
-            lugares_con_categoria.append({
-                **lugar,
-                "categoria": categoria or "Sin categoría"
-            })
+            if esta_cerrado:
+                # Lugar cerrado permanentemente - rechazar directamente
+                lugares_cerrados.append({
+                    **lugar,
+                    "categoria": categoria or "Desconocida",
+                    "razon_rechazo": "Lugar cerrado permanentemente"
+                })
+                logger.info(f"   ❌ Rechazado: Cerrado permanentemente")
+            else:
+                lugares_con_categoria.append({
+                    **lugar,
+                    "categoria": categoria or "Sin categoría"
+                })
             
             time.sleep(0.5)  # Pausa entre requests
+
         
     finally:
         driver.quit()
@@ -246,6 +268,19 @@ def procesar_lugares():
     validados = []
     rechazados = []
     timestamp = datetime.now().isoformat()
+    
+    # Agregar lugares cerrados a rechazados
+    for lugar_cerrado in lugares_cerrados:
+        registro = {
+            "link": lugar_cerrado["link"],
+            "nombre": lugar_cerrado["nombre"],
+            "categoria": lugar_cerrado["categoria"],
+            "razon_rechazo": lugar_cerrado["razon_rechazo"],
+            "query_original": lugar_cerrado.get("query", ""),
+            "fecha_scraping": lugar_cerrado.get("fecha_busqueda", ""),
+            "fecha_validacion": timestamp,
+        }
+        rechazados.append(registro)
     
     for lugar in lugares_con_categoria:
         validacion = validaciones.get(lugar["link"], {"es_valido": True, "razon": "No validado"})
@@ -284,6 +319,7 @@ def procesar_lugares():
     logger.info("RESUMEN DE VALIDACIÓN")
     logger.info("=" * 50)
     logger.info(f"Total procesados: {len(lugares)}")
+    logger.info(f"Cerrados permanentemente: {len(lugares_cerrados)}")
     logger.info(f"Lugares VALIDADOS: {len(validados)}")
     logger.info(f"Lugares RECHAZADOS: {len(rechazados)}")
     logger.info(f"Archivo validados: {ARCHIVO_VALIDADOS}")
