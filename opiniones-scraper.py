@@ -241,26 +241,19 @@ def guardar_reviews(reviews_data):
 def crear_driver():
     """Crea driver de Chrome compatible con GitHub Actions"""
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--disable-sync")
-    options.add_argument("--remote-debugging-port=9222")
     options.add_argument("--window-size=1920,4000")
     options.add_argument("--lang=es-AR")
     options.add_argument("--log-level=3")
     options.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
     
-    # Más estabilidad en GitHub Actions
-    options.add_argument("--single-process")
-    options.add_argument("--disable-features=VizDisplayCompositor")
-    
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.set_page_load_timeout(60)
+    return driver
+
 
 
 def forzar_entrada_pestana_opiniones(driver):
