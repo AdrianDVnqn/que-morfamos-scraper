@@ -906,6 +906,20 @@ if __name__ == "__main__":
             procesados += 1
             errores_consecutivos = 0
             
+            # Guardar progreso cada 10 restaurantes
+            if procesados % 10 == 0:
+                logger.info(f"   💾 Guardando progreso ({procesados} procesados, {total_reviews} reseñas)...")
+                try:
+                    import subprocess
+                    subprocess.run(["cp", "estado_reviews.csv", "private-repo/data/"], check=False)
+                    subprocess.run(["cp", "reviews_neuquen.csv", "private-repo/data/"], check=False)
+                    subprocess.run(["git", "-C", "private-repo", "add", "."], check=False)
+                    subprocess.run(["git", "-C", "private-repo", "commit", "-m", f"Progreso: {procesados} lugares, {total_reviews} reseñas"], check=False)
+                    subprocess.run(["git", "-C", "private-repo", "push"], check=False)
+                    logger.info("   ✓ Progreso guardado")
+                except Exception as save_err:
+                    logger.warning(f"   No se pudo guardar progreso: {save_err}")
+            
         except Exception as e:
             errores_consecutivos += 1
             logger.warning(f"   Error en lugar: {str(e)[:50]}")
@@ -922,6 +936,7 @@ if __name__ == "__main__":
                     break
         
         time.sleep(2)  # Pausa entre lugares
+
     
     # Cerrar driver
     try:
