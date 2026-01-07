@@ -6,6 +6,7 @@ import random
 import datetime
 import logging
 import csv
+import hashlib
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -112,21 +113,69 @@ def actualizar_estado(url, estado, mensaje=""):
         writer.writeheader()
         writer.writerows(filas)
 
+def generar_id_review(url, autor, fecha, texto):
+    """
+    Genera un ID único para una reseña basado en sus datos.
+    Usa hash de: URL del lugar + autor + fecha + primeros 50 chars del texto.
+    """
+    # Normalizar datos
+    texto_norm = (texto or "")[:50].lower().strip()
+    autor_norm = (autor or "").lower().strip()
+    fecha_norm = (fecha or "").lower().strip()
+    
+    # Crear string único
+    unique_str = f"{url}|{autor_norm}|{fecha_norm}|{texto_norm}"
+    
+    # Generar hash corto
+    return hashlib.md5(unique_str.encode('utf-8')).hexdigest()[:16]
+
+
+def cargar_reviews_existentes_por_url(url):
+    """
+    Carga los IDs de reseñas ya existentes para una URL específica.
+    Retorna un set de IDs para búsqueda rápida.
+    """
+    ids_existentes = set()
+    
+    if not os.path.exists(ARCHIVO_REVIEWS):
+        return ids_existentes
+    
+    try:
+        with open(ARCHIVO_REVIEWS, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get('url') == url:
+                    # Regenerar el ID de la reseña existente
+                    review_id = generar_id_review(
+                        row.get('url', ''),
+                        row.get('autor', ''),
+                        row.get('fecha', ''),
+                        row.get('texto', '')
+                    )
+                    ids_existentes.add(review_id)
+    except Exception as e:
+        logger.warning(f"Error cargando reviews existentes: {e}")
+    
+    return ids_existentes
+
+
 def guardar_reviews(reviews_data):
     """Guarda reseñas de forma incremental"""
     if not reviews_data:
-        return
+        return 0
     
     es_nuevo = not os.path.exists(ARCHIVO_REVIEWS)
     campos = ['restaurante', 'categoria', 'rating_gral', 'total_reviews_google', 
               'direccion', 'latitud', 'longitud', 'autor', 'rating_user', 
-              'texto', 'fecha', 'url', 'fecha_scraping']
+              'texto', 'fecha', 'url', 'fecha_scraping', 'review_id']
     
     with open(ARCHIVO_REVIEWS, 'a', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=campos)
         if es_nuevo:
             writer.writeheader()
         writer.writerows(reviews_data)
+    
+    return len(reviews_data)
 
 # ==========================================
 # 2. FUNCIONES DE NAVEGACIÓN
@@ -365,13 +414,39 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
 
         expandir_resenas_largas(driver)
         
+        # Cargar IDs de reseñas existentes para este lugar
+        ids_existentes = cargar_reviews_existentes_por_url(url)
+        if ids_existentes:
+            logger.info(f"   Reseñas existentes en dataset: {len(ids_existentes)}")
+        
         # Extraer datos con BeautifulSoup
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         bloques = soup.find_all('div', class_='jftiEf')
         
         fecha_scraping = datetime.datetime.now().isoformat()
+        reviews_nuevas = 0
+        reviews_duplicadas = 0
         
         for bloque in bloques:
+            # Extraer datos básicos primero para generar ID
+            t_autor = bloque.find('div', class_='d4r55')
+            autor = t_autor.text.strip() if t_autor else "Anónimo"
+            
+            t_texto = bloque.find('span', class_='wiI7pd')
+            texto = t_texto.text.strip() if t_texto else ""
+            
+            t_fecha = bloque.find('span', class_='rsqaWe')
+            fecha = t_fecha.text.strip() if t_fecha else None
+            
+            # Generar ID único para esta reseña
+            review_id = generar_id_review(url, autor, fecha, texto)
+            
+            # Verificar si ya existe
+            if review_id in ids_existentes:
+                reviews_duplicadas += 1
+                continue  # Saltar reseña duplicada
+            
+            # Crear registro
             row = {
                 'restaurante': metadata['nombre'],
                 'categoria': metadata['categoria'],
@@ -380,25 +455,14 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
                 'direccion': metadata['direccion'],
                 'latitud': metadata['latitud'],
                 'longitud': metadata['longitud'],
-                'autor': "Anónimo",
+                'autor': autor,
                 'rating_user': None,
-                'texto': "",
-                'fecha': None,
+                'texto': texto,
+                'fecha': fecha,
                 'url': url,
-                'fecha_scraping': fecha_scraping
+                'fecha_scraping': fecha_scraping,
+                'review_id': review_id
             }
-            
-            t_autor = bloque.find('div', class_='d4r55')
-            if t_autor: 
-                row['autor'] = t_autor.text.strip()
-            
-            t_texto = bloque.find('span', class_='wiI7pd')
-            if t_texto: 
-                row['texto'] = t_texto.text.strip()
-            
-            t_fecha = bloque.find('span', class_='rsqaWe')
-            if t_fecha: 
-                row['fecha'] = t_fecha.text.strip()
             
             # Rating del usuario
             tags_img = bloque.find_all('span', role='img')
@@ -414,10 +478,11 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
                         break
             
             reviews_data.append(row)
+            reviews_nuevas += 1
         
         estado = "EXITO"
-        mensaje = f"Extraídas {len(reviews_data)} reseñas"
-        logger.info(f"   ✓ {len(reviews_data)} reseñas extraídas")
+        mensaje = f"Nuevas: {reviews_nuevas}, Duplicadas: {reviews_duplicadas}"
+        logger.info(f"   ✓ {reviews_nuevas} reseñas NUEVAS | {reviews_duplicadas} duplicadas (skip)")
 
     except Exception as e:
         estado = "ERROR_TEMPORAL"
