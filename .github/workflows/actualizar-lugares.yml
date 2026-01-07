@@ -1,0 +1,113 @@
+name: Actualizar Lugares
+
+on:
+  schedule:
+    # Ejecutar el día 1 de cada mes a las 3:00 AM UTC
+    - cron: '0 3 1 * *'
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  scrape-lugares:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 horas máximo
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager openai beautifulsoup4 requests
+      
+      # ETAPA 1: Scraping de lugares
+      - name: Ejecutar scraper de lugares
+        run: python restaurant-scraper.py
+      
+      # ETAPA 2: Enriquecimiento y validación con LLM
+      - name: Ejecutar validador
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: python enrichment-validator.py
+      
+      # ETAPA 3: Generar resumen y notificar
+      - name: Enviar notificación Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os
+          import csv
+          import requests
+          import datetime
+
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if not webhook:
+              print('DISCORD_WEBHOOK_URL no configurado')
+              exit(0)
+
+          # Contar lugares
+          encontrados = validados = rechazados = 0
+          try:
+              with open('lugares_encontrados.csv', 'r') as f:
+                  encontrados = sum(1 for _ in csv.reader(f)) - 1
+          except: pass
+          try:
+              with open('lugares_validados.csv', 'r') as f:
+                  validados = sum(1 for _ in csv.reader(f)) - 1
+          except: pass
+          try:
+              with open('lugares_rechazados.csv', 'r') as f:
+                  rechazados = sum(1 for _ in csv.reader(f)) - 1
+          except: pass
+
+          mensaje = f'''**📍 QUE MORFAMOS - Actualización de Lugares**
+          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+          • Lugares encontrados: **{encontrados}**
+          • ✅ Validados: **{validados}**
+          • ❌ Rechazados: **{rechazados}**
+          '''
+
+          requests.post(webhook, json={'embeds': [{'description': mensaje, 'color': 0x3498db}]})
+          print('✓ Notificación enviada')
+          "
+      
+      # ETAPA 4: Subir resultados al repo privado
+      - name: Subir resultados al repo privado
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          
+          mkdir -p private-repo/data
+          mkdir -p private-repo/logs
+          
+          # Copiar archivos de datos
+          cp lugares_encontrados.csv private-repo/data/ 2>/dev/null || true
+          cp lugares_validados.csv private-repo/data/ 2>/dev/null || true
+          cp lugares_rechazados.csv private-repo/data/ 2>/dev/null || true
+          
+          # Copiar logs con timestamp
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cp logs/scraper_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/enrichment_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/scraper_run.log "private-repo/logs/scraper_${TIMESTAMP}.log" 2>/dev/null || true
+          cp logs/enrichment_run.log "private-repo/logs/enrichment_${TIMESTAMP}.log" 2>/dev/null || true
+          
+          # Commit y push
+          cd private-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Actualización de lugares - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
+          git push

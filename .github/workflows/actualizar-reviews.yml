@@ -1,0 +1,127 @@
+name: Actualizar Reseñas
+
+on:
+  schedule:
+    # Ejecutar el día 15 de cada mes a las 3:00 AM UTC
+    - cron: '0 3 15 * *'
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  scrape-reviews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 horas máximo
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager beautifulsoup4 requests
+      
+      # Descargar datos previos del repo privado
+      - name: Descargar datos previos
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          # Copiar archivos necesarios
+          cp private-repo/data/lugares_validados.csv . 2>/dev/null || echo "No hay lugares_validados.csv"
+          cp private-repo/data/estado_reviews.csv . 2>/dev/null || true
+          cp private-repo/data/reviews_neuquen.csv . 2>/dev/null || true
+      
+      # Verificar que existe lugares_validados.csv
+      - name: Verificar datos de entrada
+        run: |
+          if [ ! -f lugares_validados.csv ]; then
+            echo "ERROR: No existe lugares_validados.csv"
+            echo "Primero ejecutá el workflow 'Actualizar Lugares'"
+            exit 1
+          fi
+          echo "✓ Encontrados $(wc -l < lugares_validados.csv) lugares para procesar"
+      
+      # Ejecutar scraper de reseñas
+      - name: Ejecutar scraper de reseñas
+        run: python opiniones-scraper.py
+      
+      # Enviar notificación Discord
+      - name: Enviar notificación Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os
+          import csv
+          import requests
+          import datetime
+
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if not webhook:
+              print('DISCORD_WEBHOOK_URL no configurado')
+              exit(0)
+
+          # Contar reseñas
+          total_reviews = 0
+          exitos = sin_opiniones = errores = 0
+          
+          try:
+              with open('reviews_neuquen.csv', 'r') as f:
+                  total_reviews = sum(1 for _ in csv.reader(f)) - 1
+          except: pass
+          
+          try:
+              with open('estado_reviews.csv', 'r') as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      if row.get('estado') == 'EXITO': exitos += 1
+                      elif row.get('estado') == 'SIN_OPINIONES': sin_opiniones += 1
+                      else: errores += 1
+          except: pass
+
+          mensaje = f'''**⭐ QUE MORFAMOS - Actualización de Reseñas**
+          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+          📝 Total reseñas en dataset: **{total_reviews}**
+          ✅ Lugares procesados: **{exitos}**
+          🚫 Sin opiniones: **{sin_opiniones}**
+          ⚠️ Con errores: **{errores}**
+          '''
+
+          requests.post(webhook, json={'embeds': [{'description': mensaje, 'color': 0xf1c40f}]})
+          print('✓ Notificación enviada')
+          "
+      
+      # Subir resultados al repo privado
+      - name: Subir resultados al repo privado
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          mkdir -p private-repo/data
+          mkdir -p private-repo/logs
+          
+          # Copiar archivos de datos
+          cp reviews_neuquen.csv private-repo/data/ 2>/dev/null || true
+          cp estado_reviews.csv private-repo/data/ 2>/dev/null || true
+          
+          # Copiar logs con timestamp
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cp logs/reviews_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/reviews_run.log "private-repo/logs/reviews_${TIMESTAMP}.log" 2>/dev/null || true
+          
+          # Commit y push
+          cd private-repo
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Actualización de reseñas - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
+          git push
