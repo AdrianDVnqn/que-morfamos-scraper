@@ -132,6 +132,16 @@ def parsear_fecha_relativa(fecha_texto):
     return None, fecha_texto
 
 
+def safe_int(value, default=0):
+    """Convierte un valor a int de forma segura, retornando default si falla"""
+    try:
+        if value is None or value == "":
+            return default
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # ==========================================
 # 1. SISTEMA DE ESTADO INCREMENTAL
 # ==========================================
@@ -144,7 +154,7 @@ def cargar_estado():
             for row in reader:
                 estados[row['url']] = {
                     'estado': row['estado'],
-                    'intentos': int(row.get('intentos', 1))
+                    'intentos': safe_int(row.get('intentos'), 1)
                 }
         return estados
     return {}
@@ -163,7 +173,7 @@ def actualizar_estado(url, estado, mensaje="", incrementar_intento=False):
                 if row['url'] != url:
                     filas.append(row)
                 else:
-                    intentos_previos = int(row.get('intentos', 0))
+                    intentos_previos = safe_int(row.get('intentos'), 0)
     
     # Calcular intentos
     if estado == "RETRY_PESTANA":
