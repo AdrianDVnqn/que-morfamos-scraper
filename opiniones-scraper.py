@@ -1043,6 +1043,13 @@ if __name__ == "__main__":
                     logger.error(f"No se pudo reiniciar el driver: {restart_error}")
                     break
         
+        if i % 20 == 0:
+            logger.info(f"♻️ Reiniciando driver preventivamente (ciclo {i})...")
+            try:
+                driver = reiniciar_driver()
+            except Exception as e:
+                logger.error(f"Error reiniciando driver: {e}")
+        
         time.sleep(2)  # Pausa entre lugares
 
     
