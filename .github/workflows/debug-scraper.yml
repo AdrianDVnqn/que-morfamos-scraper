@@ -1,0 +1,48 @@
+name: Debug Scraper
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager beautifulsoup4 requests
+      
+      - name: Descargar datos previos
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
+          cp private-repo/data/lugares_validados.csv . 2>/dev/null || echo "No hay lugares_validados.csv"
+          # No copiamos estado_reviews.csv para que intente procesar todo (o una muestra)
+          # O si queremos probar falla especifica, lo copiamos. 
+          # Mejor copiemos para respetar la logica de skip, pero el usuario puede borrar el archivo en local si quiere.
+          cp private-repo/data/estado_reviews.csv . 2>/dev/null || true
+      
+      - name: Ejecutar Scraper Debug
+        run: python opiniones-scraper-debug.py
+      
+      - name: Subir Logs (Artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs
+          path: logs/
