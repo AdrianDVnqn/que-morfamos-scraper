@@ -292,13 +292,15 @@ def crear_driver():
 def forzar_entrada_pestana_opiniones(driver):
     """Intenta entrar a la pestaña de Opiniones"""
     xpaths = [
-        "//button[@role='tab'][contains(@aria-label, 'Revisiones')]", 
-        "//button[@role='tab'][@data-tab-index='2']",
-        "//button[@role='tab']//div[contains(text(), 'Opiniones')]",
-        "//button[@role='tab'][contains(@aria-label, 'Opiniones')]",
+        "//button[@role='tab'][contains(@aria-label, 'Reseñas')]",
         "//button[@role='tab'][contains(@aria-label, 'Reviews')]",
+        "//button[@role='tab'][contains(@aria-label, 'Opiniones')]",
+        "//button[@role='tab'][contains(@aria-label, 'Revisiones')]", 
+        "//button[@role='tab']//div[contains(text(), 'Reseñas')]",
+        "//button[@role='tab']//div[contains(text(), 'Opiniones')]",
         "//button[@role='tab'][contains(., 'Reviews')]",
-        "//button[@role='tab'][contains(., 'Opiniones')]"
+        "//button[@role='tab'][contains(., 'Opiniones')]",
+        "//button[@role='tab'][contains(., 'Reseñas')]"
     ]
 
     for intento in range(3):
@@ -333,11 +335,31 @@ def forzar_entrada_pestana_opiniones(driver):
         if boton_encontrado:
             try:
                 driver.execute_script("arguments[0].click();", boton_encontrado)
-                # Esperar confirmación - también en inglés
-                WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort') or contains(@aria-label, 'Escribir') or contains(@aria-label, 'Write')]"))
-                )
-                return True
+                time.sleep(2)
+                
+                # VERIFICACIÓN MULTIPLE
+                # 1. Verificar si el botón cambió a seleccionado
+                is_selected = boton_encontrado.get_attribute("aria-selected")
+                if is_selected == "true":
+                    return True
+
+                # 2. Verificar presencia de botón Ordenar o Escribir
+                try:
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort') or contains(@aria-label, 'Escribir') or contains(@aria-label, 'Write')]"))
+                    )
+                    return True
+                except:
+                    pass
+                
+                # 3. Verificar presencia de puntaje
+                try:
+                    driver.find_element(By.CLASS_NAME, "fontDisplayLarge")
+                    return True
+                except:
+                    pass
+
+                # Si llegamos acá, el click no pareció surtir efecto, reintentar loop
             except:
                 time.sleep(1.5)
                 continue
