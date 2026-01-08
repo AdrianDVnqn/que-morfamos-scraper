@@ -9,6 +9,9 @@ on:
 jobs:
   scrape-reviews:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     timeout-minutes: 360  # 6 horas máximo
     
     steps:
