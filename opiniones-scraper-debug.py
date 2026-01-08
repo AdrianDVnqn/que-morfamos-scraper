@@ -348,13 +348,41 @@ def forzar_entrada_pestana_opiniones(driver):
 
         if boton_encontrado:
             try:
+                # Log del intento
+                logger.info(f"   👉 Click en botón: '{boton_encontrado.text}' (aria: {boton_encontrado.get_attribute('aria-label')})")
+                
                 driver.execute_script("arguments[0].click();", boton_encontrado)
-                # Esperar confirmación - también en inglés
-                WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort') or contains(@aria-label, 'Escribir') or contains(@aria-label, 'Write')]"))
-                )
-                return True
-            except:
+                time.sleep(2) # Esperar reacción inicial
+                
+                # VERIFICACIÓN MULTIPLE
+                # 1. Verificar si el botón cambió a seleccionado
+                is_selected = boton_encontrado.get_attribute("aria-selected")
+                if is_selected == "true":
+                    logger.info("   ✅ Verificado por aria-selected='true'")
+                    return True
+
+                # 2. Verificar presencia de botón Ordenar o Escribir (puede tardar)
+                try:
+                    WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, "//button[contains(@aria-label, 'Ordenar') or contains(@aria-label, 'Sort') or contains(@aria-label, 'Escribir') or contains(@aria-label, 'Write')]"))
+                    )
+                    logger.info("   ✅ Verificado por botón 'Ordenar/Escribir'")
+                    return True
+                except:
+                    pass
+
+                # 3. Verificar presencia de puntaje (fontDisplayLarge)
+                try:
+                    driver.find_element(By.CLASS_NAME, "fontDisplayLarge")
+                    logger.info("   ✅ Verificado por aparición de Puntaje")
+                    return True
+                except:
+                    pass
+                
+                logger.warning("   ⚠️ Click realizado pero no se detectó cambio de estado")
+                
+            except Exception as e:
+                logger.error(f"   ❌ Error al hacer click: {e}")
                 time.sleep(1.5)
                 continue
         time.sleep(1.5)
