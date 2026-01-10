@@ -20,13 +20,13 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 try:
     from db_utils import (
         get_connection, close_connection, insertar_reviews_batch,
-        obtener_ids_existentes_por_url, ensure_review_id_unique_constraint,
+        obtener_ids_existentes_por_url,
         upsert_lugar, get_ultima_review_restaurante
     )
     from geo_utils import asignar_barrio, extraer_coordenadas_url
     DB_AVAILABLE = True
-except ImportError:
-    logger.warning("No se pudo importar db_utils o geo_utils")
+except ImportError as e:
+    print(f"⚠️ No se pudo importar db_utils o geo_utils: {e}")
     DB_AVAILABLE = False
 
 # ==========================================
