@@ -20,7 +20,7 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 try:
     from db_utils import (
         get_connection, close_connection, insertar_reviews_batch,
-        obtener_ids_existentes_por_url,
+        obtener_ids_existentes_por_restaurante,
         upsert_lugar, get_ultima_review_restaurante
     )
     from geo_utils import asignar_barrio, extraer_coordenadas_url
@@ -203,9 +203,9 @@ def generar_id_review(url, autor, fecha, texto):
     return hashlib.md5(unique_str.encode('utf-8')).hexdigest()[:16]
 
 
-def cargar_reviews_existentes_por_url(url):
+def cargar_reviews_existentes_por_restaurante(restaurante_nombre):
     """
-    Carga los IDs de reseñas ya existentes para una URL específica.
+    Carga los IDs de reseñas ya existentes para un restaurante específico.
     Primero intenta desde la base de datos (Supabase), luego fallback a CSV.
     Retorna un set de IDs para búsqueda rápida.
     """
@@ -214,14 +214,14 @@ def cargar_reviews_existentes_por_url(url):
     # Primero intentar desde la base de datos
     if DB_AVAILABLE:
         try:
-            ids_db = obtener_ids_existentes_por_url(url)
+            ids_db = obtener_ids_existentes_por_restaurante(restaurante_nombre)
             if ids_db:
                 logger.info(f"   📊 {len(ids_db)} reviews existentes en DB")
                 return ids_db
         except Exception as e:
             logger.warning(f"Error consultando DB: {e}")
     
-    # Fallback: cargar desde CSV local
+    # Fallback: cargar desde CSV local (busca por restaurante)
     if not os.path.exists(ARCHIVO_REVIEWS):
         return ids_existentes
     
@@ -229,7 +229,7 @@ def cargar_reviews_existentes_por_url(url):
         with open(ARCHIVO_REVIEWS, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if row.get('url') == url:
+                if row.get('restaurante') == restaurante_nombre:
                     review_id = generar_id_review(
                         row.get('url', ''),
                         row.get('autor', ''),
@@ -841,7 +841,7 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
         expandir_resenas_largas(driver)
         
         # Cargar IDs de reseñas existentes
-        ids_existentes = cargar_reviews_existentes_por_url(url)
+        ids_existentes = cargar_reviews_existentes_por_restaurante(metadata['nombre'])
         if ids_existentes:
             logger.info(f"   Reseñas existentes en dataset: {len(ids_existentes)}")
         

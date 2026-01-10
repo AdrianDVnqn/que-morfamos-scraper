@@ -281,9 +281,9 @@ def verificar_review_existe(review_id):
         return False
 
 
-def obtener_ids_existentes_por_url(url):
+def obtener_ids_existentes_por_restaurante(restaurante_nombre):
     """
-    Obtiene los review_ids existentes para una URL específica.
+    Obtiene los review_ids existentes para un restaurante específico.
     Útil para deduplicación antes de insertar.
     
     Returns:
@@ -296,8 +296,8 @@ def obtener_ids_existentes_por_url(url):
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT review_id FROM reviews WHERE url = %s",
-            (url,)
+            "SELECT review_id FROM reviews WHERE restaurante = %s",
+            (restaurante_nombre,)
         )
         ids = {row[0] for row in cursor.fetchall()}
         cursor.close()
