@@ -21,7 +21,7 @@ try:
     from db_utils import (
         get_connection, close_connection, insertar_reviews_batch,
         obtener_ids_existentes_por_url, ensure_review_id_unique_constraint,
-        upsert_lugar
+        upsert_lugar, get_ultima_review_restaurante
     )
     from geo_utils import asignar_barrio, extraer_coordenadas_url
     DB_AVAILABLE = True
@@ -845,6 +845,16 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
         if ids_existentes:
             logger.info(f"   Reseñas existentes en dataset: {len(ids_existentes)}")
         
+        # Early-stop optimization: obtener última reseña de DB para comparar
+        ultima_review_db = None
+        if DB_AVAILABLE:
+            try:
+                ultima_review_db = get_ultima_review_restaurante(metadata['nombre'])
+                if ultima_review_db:
+                    logger.info(f"   🎯 Early-stop activado: buscando match con última review de DB")
+            except:
+                pass
+        
         # Extraer datos con BeautifulSoup
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         bloques = soup.find_all('div', class_='jftiEf')
@@ -852,6 +862,7 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
         fecha_scraping = datetime.datetime.now().isoformat()
         reviews_nuevas = 0
         reviews_duplicadas = 0
+        early_stopped = False
         
         for bloque in bloques:
             t_autor = bloque.find('div', class_='d4r55')
@@ -859,6 +870,16 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             
             t_texto = bloque.find('span', class_='wiI7pd')
             texto = t_texto.text.strip() if t_texto else ""
+            
+            # Early-stop check: si esta review coincide con la última en DB, parar
+            if ultima_review_db:
+                autor_norm = autor.strip().lower()
+                texto_norm = ' '.join(texto[:100].lower().split())
+                if (autor_norm == ultima_review_db['autor'] and 
+                    texto_norm.startswith(ultima_review_db['texto_inicio'][:50])):
+                    logger.info(f"   ⏹️ Early-stop: encontrada review existente de '{autor[:20]}...'")
+                    early_stopped = True
+                    break
             
             t_fecha = bloque.find('span', class_='rsqaWe')
             fecha_texto = t_fecha.text.strip() if t_fecha else None
@@ -905,8 +926,9 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
             reviews_nuevas += 1
         
         estado = "EXITO"
-        mensaje = f"Nuevas: {reviews_nuevas}, Duplicadas: {reviews_duplicadas}"
-        logger.info(f"   ✓ {reviews_nuevas} reseñas NUEVAS | {reviews_duplicadas} duplicadas (skip)")
+        early_msg = " (early-stop)" if early_stopped else ""
+        mensaje = f"Nuevas: {reviews_nuevas}, Duplicadas: {reviews_duplicadas}{early_msg}"
+        logger.info(f"   ✓ {reviews_nuevas} reseñas NUEVAS | {reviews_duplicadas} duplicadas{early_msg}")
 
     except Exception as e:
         estado = "ERROR_TEMPORAL"

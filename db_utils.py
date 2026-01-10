@@ -587,3 +587,34 @@ def log_validation_report(total_reportadas, total_reales, discrepancias_count, d
         return False
     finally:
         cursor.close()
+
+def get_ultima_review_restaurante(restaurante_nombre):
+    """
+    Obtiene la reseña más reciente de un restaurante para early-stop optimization.
+    Retorna: dict con 'autor' y 'texto_inicio' (primeros 100 chars) o None si no hay.
+    """
+    conn = get_connection()
+    if not conn:
+        return None
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT autor, LEFT(texto, 100) as texto_inicio
+            FROM reviews 
+            WHERE restaurante = %s 
+            ORDER BY fecha_scraping DESC 
+            LIMIT 1
+        """, (restaurante_nombre,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'autor': (row[0] or '').strip().lower(),
+                'texto_inicio': ' '.join((row[1] or '').lower().split())
+            }
+        return None
+    except Exception as e:
+        logger.warning(f"Error obteniendo última review: {e}")
+        return None
+    finally:
+        cursor.close()
+
