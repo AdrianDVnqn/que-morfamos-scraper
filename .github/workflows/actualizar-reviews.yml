@@ -77,8 +77,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -o pipefail
           mkdir -p logs
-          python opiniones-scraper.py > logs/execution_stdout.log 2>&1
+          python -u opiniones-scraper.py 2>&1 | tee logs/execution_stdout.log
       
       # Subir Artifact de Logs (GitHub)
       - name: Subir Logs de Ejecución
