@@ -105,6 +105,8 @@ def validar_db(export_csv=True):
             
     except Exception as e:
         logger.error(f"Error en validación DB: {e}")
+        import sys
+        sys.exit(1)
     finally:
         cursor.close()
         conn.close()

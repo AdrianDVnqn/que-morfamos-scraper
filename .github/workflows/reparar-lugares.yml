@@ -41,6 +41,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          set -o pipefail
           {
             # 1. Generar CSV de validación fresco desde la DB
             python validar_reviews.py
@@ -52,7 +53,7 @@ jobs:
               echo "❌ No se generó el archivo data/validacion_reviews.csv"
               exit 1
             fi
-          } > run.log 2>&1
+          } 2>&1 | tee run.log
 
       - name: Subir Log de Reparación
         if: always()
