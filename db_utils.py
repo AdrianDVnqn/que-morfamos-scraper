@@ -455,6 +455,22 @@ def get_lugares_para_monitoreo(limit=50):
             })
             
         return lugares
+    except Exception as e:
+        logger.warning(f"⚠️ Error obteniendo lugares para monitoreo: {e}")
+        return []
+    finally:
+        try:
+            cursor.close()
+        except:
+            pass
+
+def ensure_log_tables_exists():
+    """Crea las tablas de logs y reportes si no existen."""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
         # Tabla scraping_logs
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS scraping_logs (
@@ -497,7 +513,10 @@ def get_lugares_para_monitoreo(limit=50):
         logger.warning(f"⚠️ Error creando tablas de logs: {e}")
         return False
     finally:
-        cursor.close()
+        try:
+            cursor.close()
+        except:
+            pass
 
 def log_scraping_event(url, estado, mensaje, reviews_detectadas=0, nuevas_reviews=0, intentos=1):
     """Guarda un evento de scraping en la base de datos."""
