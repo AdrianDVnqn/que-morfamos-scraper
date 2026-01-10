@@ -1,0 +1,88 @@
+name: Accion Auxiliar - Reparar Lugares Faltantes
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Escribí SI para confirmar la ejecución'
+        required: true
+        default: 'NO'
+
+jobs:
+  reparar:
+    runs-on: ubuntu-latest
+    if: inputs.confirmar == 'SI'
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager psycopg2-binary pandas geopandas requests
+      
+      # Este paso requiere que validacion_reviews.csv exista. 
+      # Si se genera en otro paso anterior, habría que descargarlo como artifact.
+      # Asumimos que el usuario subirá el archivo o que se genera al vuelo.
+      # O mejor aún: descargamos el artifact de la última ejecución de "Validar Reviews" (si existiese)
+      # Pero como es manual, simplifiquemos: Corremos la validación primero para generar el CSV fresco.
+      
+      - name: Ejecutar Reparación
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          {
+            # 1. Generar CSV de validación fresco desde la DB
+            python validar_reviews.py
+            
+            # 2. Ejecutar reparación usando ese CSV
+            if [ -f "data/validacion_reviews.csv" ]; then
+              python reparar_lugares_faltantes.py
+            else
+              echo "❌ No se generó el archivo data/validacion_reviews.csv"
+              exit 1
+            fi
+          } > run.log 2>&1
+
+      - name: Subir Log de Reparación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-reparacion
+          path: run.log
+
+
+      - name: Notificar a Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime
+          
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              try:
+                  content = 'Proceso de reparación finalizado.'
+                  if os.path.exists('discord_summary_reparacion.txt'):
+                      with open('discord_summary_reparacion.txt', 'r', encoding='utf-8') as f:
+                          content = f.read()
+                  
+                  msg = f'''{content}
+                  📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+                  '''
+                  
+                  requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xf1c40f}]})
+              except Exception as e:
+                  print(f'Error enviando notif: {e}')
+          "

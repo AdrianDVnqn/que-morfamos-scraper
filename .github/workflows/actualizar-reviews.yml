@@ -50,7 +50,7 @@ jobs:
       
       - name: Instalar dependencias completas
         run: |
-          pip install selenium webdriver-manager beautifulsoup4
+          pip install selenium webdriver-manager beautifulsoup4 psycopg2-binary geopandas
       
       # Descargar datos previos del repo privado
       - name: Descargar datos previos
@@ -74,7 +74,19 @@ jobs:
       
       # Ejecutar scraper de reseñas
       - name: Ejecutar scraper de reseñas
-        run: python opiniones-scraper.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          mkdir -p logs
+          python opiniones-scraper.py > logs/execution_stdout.log 2>&1
+      
+      # Subir Artifact de Logs (GitHub)
+      - name: Subir Logs de Ejecución
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-actualizar-reviews
+          path: logs/
       
       # Subir resultados al repo privado
       - name: Subir resultados al repo privado
@@ -89,6 +101,7 @@ jobs:
           
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           cp logs/reviews_run.log private-repo/logs/ 2>/dev/null || true
+          cp logs/execution_stdout.log private-repo/logs/ 2>/dev/null || true
           cp logs/reviews_run.log "private-repo/logs/reviews_${TIMESTAMP}.log" 2>/dev/null || true
           
           cd private-repo

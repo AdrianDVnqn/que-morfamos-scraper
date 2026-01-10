@@ -12,6 +12,19 @@ import csv
 import os
 from urllib.parse import unquote
 
+# Integración con Supabase y Geo
+try:
+    from db_utils import upsert_lugar
+    from geo_utils import extraer_coordenadas_url, asignar_barrio
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = True # Para que no falle si DB_UTILS está pero geo_utils no (aunque estarán ambos)
+    # Mejor manejo de error:
+    try:
+        from db_utils import upsert_lugar
+    except ImportError:
+        DB_AVAILABLE = False
+
 # --- CONFIGURACIÓN ---
 
 # Archivos de salida
@@ -155,26 +168,102 @@ def obtener_links_de_busqueda(query, max_reintentos=3):
                     scroll_pausas = 0
                     last_height = new_height
             
-            # 4. Extraer los links con metadata
-            logger.info("Extrayendo URLs...")
-            elements = feed.find_elements(By.TAG_NAME, "a")
+            # 4. Extraer los links con metadata enriquecida
+            logger.info("Extrayendo información detallada de los resultados...")
             
-            for elem in elements:
-                try:
-                    href = elem.get_attribute("href")
-                    if href and "/maps/place/" in href:
-                        # Intentar extraer el nombre del lugar del aria-label
-                        nombre = elem.get_attribute("aria-label") or "Desconocido"
-                        
-                        resultados.append({
-                            "link": href,
-                            "nombre": nombre,
-                            "query": query,
-                            "fecha_busqueda": timestamp_busqueda,
-                            "intento_exitoso": intento + 1
-                        })
-                except:
-                    continue
+            # Iterar sobre las tarjetas de resultados (clase .Nv2PK suele ser el contenedor del item)
+            # Si cambia la clase, esto podría fallar, así que mantenemos un fallback o try/except robusto.
+            cards = feed.find_elements(By.CSS_SELECTOR, ".Nv2PK")
+            
+            if not cards:
+                # Fallback por si la estructura de clases cambió: buscar solo por tag 'a' como antes
+                logger.warning("No se encontraron tarjetas .Nv2PK, usando método fallback (solo links).")
+                elements = feed.find_elements(By.TAG_NAME, "a")
+                for elem in elements:
+                    try:
+                        href = elem.get_attribute("href")
+                        if href and "/maps/place/" in href:
+                            nombre = elem.get_attribute("aria-label") or "Desconocido"
+                            resultados.append({
+                                "link": href,
+                                "nombre": nombre,
+                                "categoria": None,
+                                "rating_gral": None,
+                                "total_reviews_google": 0,
+                                "direccion": None,
+                                "query": query,
+                                "fecha_busqueda": timestamp_busqueda,
+                                "intento_exitoso": intento + 1
+                            })
+                    except:
+                        continue
+            else:
+                for card in cards:
+                    try:
+                        # Link y Nombre
+                        link_elem = card.find_element(By.CSS_SELECTOR, "a.hfpxzc")
+                        href = link_elem.get_attribute("href")
+                        nombre = link_elem.get_attribute("aria-label") or "Desconocido"
+
+                        # Rating (ej: "4.5")
+                        try:
+                            rating_text = card.find_element(By.CSS_SELECTOR, ".MW4etd").text
+                            rating_gral = rating_text.replace(',', '.') if rating_text else None
+                        except:
+                            rating_gral = None
+
+                        # Reviews (ej: "(1.234)")
+                        try:
+                            reviews_text = card.find_element(By.CSS_SELECTOR, ".UY7F9").text
+                            # Limpiar paréntesis y puntos de mil
+                            reviews_clean = re.sub(r'[()\.]', '', reviews_text)
+                            total_reviews = int(reviews_clean) if reviews_clean.isdigit() else 0
+                        except:
+                            total_reviews = 0
+
+                        # Categoría y Dirección (suelen estar en contenedores .W4Efsd)
+                        categoria = None
+                        direccion = None
+                        try:
+                            # Buscar todos los contenedores de texto secundarios
+                            text_containers = card.find_elements(By.CSS_SELECTOR, ".W4Efsd")
+                            if len(text_containers) > 0:
+                                # El primer W4Efsd suele tener Rating y (Reviews) en un hijo, 
+                                # y Categoría y Precio en otro. Esto es variable.
+                                # Estrategia: Buscar texto que NO sea rating/reviews
+                                full_text = text_containers[0].text
+                                parts = full_text.split('·')
+                                if len(parts) > 1:
+                                    # Posible formato: "4.5(500) · Hamburguesería · $$"
+                                    # El rating/reviews extraídos arriba son más precisos por selectores, 
+                                    # aquí intentamos sacar la categoría.
+                                    # A veces la categoría es el segundo elemento del split
+                                    categoria_cand = parts[-1].strip() # A veces es el último
+                                    # Refinamiento simplificado: Tomar todo el texto contenido en el span correspondiente
+                                    # Mejor aproximación: buscar info dentro de los spans hijos de W4Efsd
+                                    spans = text_containers[1].find_elements(By.TAG_NAME, "span") if len(text_containers) > 1 else []
+                                    if spans:
+                                        categoria = spans[0].text
+                                        if len(spans) > 1:
+                                            direccion = spans[1].text
+                        except:
+                            pass
+
+                        if href and "/maps/place/" in href:
+                            resultados.append({
+                                "link": href,
+                                "nombre": nombre,
+                                "categoria": categoria,
+                                "rating_gral": rating_gral,
+                                "total_reviews_google": total_reviews,
+                                "direccion": direccion,
+                                "query": query,
+                                "fecha_busqueda": timestamp_busqueda,
+                                "intento_exitoso": intento + 1
+                            })
+                    except Exception as e_card:
+                        # logger.debug(f"Error parseando tarjeta: {e_card}")
+                        continue
             
             logger.info(f"Se encontraron {len(resultados)} locales en esta búsqueda.")
             break  # Éxito
@@ -204,6 +293,48 @@ def guardar_resultados(todos_los_resultados, archivo):
         if resultado["link"] not in links_vistos:
             links_vistos.add(resultado["link"])
             resultados_unicos.append(resultado)
+    
+    # Guardar en DB (Supabase)
+    if DB_AVAILABLE:
+        logger.info(f"Guardando {len(resultados_unicos)} lugares en Base de Datos...")
+        upserts_ok = 0
+        for lugar in resultados_unicos:
+            url_map = lugar['link']
+            
+            # Extraer geo
+            lat, lon = None, None
+            try:
+                from geo_utils import extraer_coordenadas_url, asignar_barrio
+                lat, lon = extraer_coordenadas_url(url_map)
+            except ImportError:
+                pass
+            
+            # Asignar barrio
+            barrio_info = {}
+            if lat and lon:
+                try:
+                    barrio_info = asignar_barrio(lat, lon)
+                except:
+                    pass
+
+            # Adaptar dict para upsert_lugar
+            datos_db = {
+                'url': url_map,
+                'nombre': lugar['nombre'],
+                'categoria': lugar.get('categoria'),
+                'rating_gral': lugar.get('rating_gral'),
+                'total_reviews_google': lugar.get('total_reviews_google', 0),
+                'direccion': lugar.get('direccion'),
+                'latitud': lat,
+                'longitud': lon,
+                'barrio': barrio_info.get('barrio'),
+                'zona': barrio_info.get('zona'),
+                'cerca_rio': barrio_info.get('cerca_rio')
+            }
+            if upsert_lugar(datos_db):
+                upserts_ok += 1
+        
+        logger.info(f"✅ DB: {upserts_ok}/{len(resultados_unicos)} lugares actualizados")
     
     # Guardar en CSV
     with open(archivo, 'w', newline='', encoding='utf-8') as f:

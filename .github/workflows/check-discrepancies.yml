@@ -1,0 +1,62 @@
+name: Chequeo Semanal de Discrepancias
+
+on:
+  schedule:
+    # Ejecutar una vez por semana (domingos a las 9 AM UTC)
+    - cron: '0 9 * * 0'
+  workflow_dispatch:
+
+jobs:
+  validar-db:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar dependencias
+        run: |
+          pip install psycopg2-binary pandas
+      
+      - name: Ejecutar Validación
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python validar_reviews.py > run.log 2>&1
+
+      - name: Subir Log de Validación
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-validacion
+          path: run.log
+
+
+      - name: Notificar a Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime
+          
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              try:
+                  content = 'Proceso finalizado.'
+                  if os.path.exists('discord_summary.txt'):
+                      with open('discord_summary.txt', 'r', encoding='utf-8') as f:
+                          content = f.read()
+                  
+                  msg = f'''{content}
+                  📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+                  '''
+                  
+                  requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
+              except Exception as e:
+                  print(f'Error enviando notif: {e}')
+          "
