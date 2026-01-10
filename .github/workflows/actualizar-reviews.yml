@@ -81,6 +81,16 @@ jobs:
           mkdir -p logs
           python -u opiniones-scraper.py 2>&1 | tee logs/execution_stdout.log
       
+      # Regenerar embeddings con las nuevas reviews
+      - name: Regenerar Embeddings
+        if: success()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          pip install langchain-openai langchain-postgres sqlalchemy psycopg2-binary
+          python -u regenerate_embeddings.py 2>&1 | tee -a logs/execution_stdout.log
+      
       # Subir Artifact de Logs (GitHub)
       - name: Subir Logs de Ejecución
         if: always()
