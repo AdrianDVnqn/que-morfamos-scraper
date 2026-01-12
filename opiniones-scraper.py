@@ -29,6 +29,22 @@ except ImportError as e:
     print(f"⚠️ No se pudo importar db_utils o geo_utils: {e}")
     DB_AVAILABLE = False
 
+# Importar módulo compartido de scraping
+try:
+    from scraping_utils import (
+        crear_driver as crear_driver_shared,
+        forzar_entrada_pestana_opiniones as forzar_entrada_shared,
+        ordenar_por_recientes as ordenar_shared,
+        detectar_total_reviews as detectar_total_shared,
+        expandir_resenas_largas as expandir_shared,
+        parsear_fecha_relativa as parsear_fecha_shared,
+        generar_id_review as generar_id_shared,
+        extraer_coordenadas_url as extraer_coords_shared
+    )
+    SCRAPING_UTILS_AVAILABLE = True
+except ImportError:
+    SCRAPING_UTILS_AVAILABLE = False
+
 # ==========================================
 # ⚙️ CONFIGURACIÓN GENERAL
 # ==========================================

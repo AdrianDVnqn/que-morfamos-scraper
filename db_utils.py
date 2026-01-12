@@ -618,3 +618,35 @@ def get_ultima_review_restaurante(restaurante_nombre):
     finally:
         cursor.close()
 
+
+def get_ultimas_N_reviews_restaurante(restaurante_nombre, n=2):
+    """
+    Obtiene las N reseñas más recientes para early-stop robusto.
+    Retorna: lista de dicts con 'autor' y 'texto_inicio' (primeros 100 chars)
+    """
+    conn = get_connection()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT autor, LEFT(texto, 100) as texto_inicio
+            FROM reviews 
+            WHERE restaurante = %s 
+            ORDER BY fecha_scraping DESC 
+            LIMIT %s
+        """, (restaurante_nombre, n))
+        rows = cursor.fetchall()
+        return [
+            {
+                'autor': (row[0] or '').strip().lower(),
+                'texto_inicio': ' '.join((row[1] or '').lower().split())
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        logger.warning(f"Error obteniendo últimas {n} reviews: {e}")
+        return []
+    finally:
+        cursor.close()
+
