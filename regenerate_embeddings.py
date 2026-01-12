@@ -9,6 +9,9 @@ Modos:
 import os
 import sys
 import logging
+import time
+import requests
+from datetime import timedelta
 from sqlalchemy import create_engine, text
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
@@ -25,6 +28,7 @@ if os.path.exists("mis_claves.env"):
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "reviews_embeddings")
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Importar utilidades
 from db_utils import (
@@ -105,8 +109,39 @@ def create_document(lugar, resumen):
     )
 
 
+def send_discord_report(stats):
+    """Envía reporte de ejecución a Discord"""
+    if not DISCORD_WEBHOOK_URL:
+        return
+
+    color = 0x00ff00 if stats['status'] == 'success' else 0xff0000
+    
+    mensaje = f"""**🧠 QUE MORFAMOS - Regeneración de Embeddings**
+📊 **Tipo:** {stats['tipo']}
+⏱️ **Duración:** {stats['duration']}
+
+📍 **Lugares procesados:** {stats['lugares_procesados']}
+📝 **Resúmenes generados:** {stats['resumenes_generados']}
+🚀 **Embeddings creados:** {stats['embeddings_creados']}
+"""
+    
+    payload = {
+        "embeds": [{
+            "description": mensaje,
+            "color": color,
+            "timestamp": datetime.now().isoformat() if 'datetime' in globals() else None
+        }]
+    }
+    
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+    except Exception as e:
+        logger.error(f"Error enviando reporte a Discord: {e}")
+
+
 def regenerate_full():
     """Regenera TODOS los resúmenes y embeddings desde cero"""
+    start_time = time.time()
     logger.info("🔄 Regeneración COMPLETA de embeddings con resúmenes")
     
     # Migrar columnas si es necesario
@@ -125,6 +160,7 @@ def regenerate_full():
     
     docs = []
     procesados = 0
+    resumenes_count = 0
     
     for i, lugar in enumerate(lugares):
         nombre = lugar['nombre']
@@ -140,6 +176,7 @@ def regenerate_full():
         resumen = generar_resumen_reviews(reviews, nombre)
         
         if resumen:
+            resumenes_count += 1
             # Guardar resumen en DB
             actualizar_resumen_lugar(nombre, resumen)
             
@@ -147,13 +184,13 @@ def regenerate_full():
             doc = create_document(lugar, resumen)
             if doc:
                 docs.append(doc)
-                procesados += 1
         
         # Log de progreso
         if (i + 1) % 50 == 0:
             logger.info(f"   ⏳ Progreso: {i+1}/{len(lugares)}")
     
     # Generar embeddings
+    embeddings_count = 0
     if docs:
         logger.info(f"🚀 Generando embeddings para {len(docs)} lugares...")
         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -165,16 +202,28 @@ def regenerate_full():
             collection_name=COLLECTION_NAME,
             use_jsonb=True
         )
-        
-        logger.info(f"✅ {len(docs)} embeddings generados!")
+        embeddings_count = len(docs)
+        logger.info(f"✅ {embeddings_count} embeddings generados!")
     else:
         logger.warning("⚠️ No hay documentos para generar embeddings")
     
     close_connection()
+    
+    # Enviar reporte
+    duration = str(timedelta(seconds=int(time.time() - start_time)))
+    send_discord_report({
+        'status': 'success',
+        'tipo': 'FULL (Manual)',
+        'duration': duration,
+        'lugares_procesados': len(lugares),
+        'resumenes_generados': resumenes_count,
+        'embeddings_creados': embeddings_count
+    })
 
 
 def regenerate_incremental():
     """Regenera solo los lugares que tienen información nueva"""
+    start_time = time.time()
     logger.info("🔄 Regeneración INCREMENTAL de embeddings")
     
     # Migrar columnas si es necesario
@@ -240,9 +289,19 @@ def regenerate_incremental():
     
     logger.info(f"\n📊 Lugares a actualizar: {len(lugares_a_actualizar)}")
     
+    # Enviar reporte si NO hubo cambios (para saber que corrió)
     if not lugares_a_actualizar:
         logger.info("✅ Todo está actualizado, no hay cambios necesarios")
         close_connection()
+        duration = str(timedelta(seconds=int(time.time() - start_time)))
+        send_discord_report({
+            'status': 'success',
+            'tipo': 'Incremental (Sin cambios)',
+            'duration': duration,
+            'lugares_procesados': len(lugares),
+            'resumenes_generados': 0,
+            'embeddings_creados': 0
+        })
         return
     
     # Actualizar resúmenes en DB
@@ -281,9 +340,21 @@ def regenerate_incremental():
         logger.info(f"✅ {len(docs)} embeddings actualizados!")
     
     close_connection()
+    
+    # Reporte final con cambios
+    duration = str(timedelta(seconds=int(time.time() - start_time)))
+    send_discord_report({
+        'status': 'success',
+        'tipo': 'Incremental (Con actualizaciones)',
+        'duration': duration,
+        'lugares_procesados': len(lugares),
+        'resumenes_generados': len(nuevos_resumenes),
+        'embeddings_creados': len(docs)
+    })
 
 
 if __name__ == "__main__":
+    from datetime import datetime
     if "--full" in sys.argv:
         regenerate_full()
     else:
