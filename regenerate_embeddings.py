@@ -354,9 +354,85 @@ def regenerate_incremental():
     })
 
 
+def regenerate_embeddings_only():
+    """Solo regenera embeddings usando los resúmenes YA GUARDADOS en DB"""
+    start_time = time.time()
+    logger.info("🧩 Regeneración SOLO de embeddings (Desde DB existente)")
+    
+    # Migrar columnas si es necesario
+    migrate_embedding_columns()
+    engine = create_engine(get_sqlalchemy_url(DATABASE_URL))
+    
+    # Obtener lugares que YA tienen resumen
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nombre, rating_gral, direccion, zona, barrio, categoria, resumen_reviews FROM lugares WHERE resumen_reviews IS NOT NULL AND length(resumen_reviews) > 20")
+    rows = cursor.fetchall()
+    
+    lugares_con_resumen = []
+    for r in rows:
+        lugares_con_resumen.append({
+            'nombre': r[0],
+            'rating_gral': r[1],
+            'direccion': r[2],
+            'zona': r[3],
+            'barrio': r[4],
+            'categoria': r[5],
+            'resumen_reviews': r[6]
+        })
+    conn.close()
+    
+    logger.info(f"📍 Lugares con resumen apto: {len(lugares_con_resumen)}")
+    
+    if not lugares_con_resumen:
+        logger.warning("No hay lugares con resumen para procesar.")
+        return
+
+    # Eliminar todos los embeddings existentes para empezar limpio
+    logger.info("🗑️ Eliminando embeddings existentes...")
+    delete_all_embeddings(engine)
+    
+    # Crear documentos
+    docs = []
+    for l in lugares_con_resumen:
+        doc = create_document(l, l['resumen_reviews'])
+        if doc:
+            docs.append(doc)
+            
+    # Generar embeddings
+    embeddings_count = 0
+    if docs:
+        logger.info(f"🚀 Generando embeddings para {len(docs)} lugares...")
+        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        
+        vectorstore = PGVector.from_documents(
+            documents=docs,
+            embedding=embeddings,
+            connection=DATABASE_URL,
+            collection_name=COLLECTION_NAME,
+            use_jsonb=True
+        )
+        embeddings_count = len(docs)
+        logger.info(f"✅ {embeddings_count} embeddings generados!")
+    
+    close_connection()
+    
+    duration = str(timedelta(seconds=int(time.time() - start_time)))
+    send_discord_report({
+        'status': 'success',
+        'tipo': 'Embeddings Only (Recuperación)',
+        'duration': duration,
+        'lugares_procesados': len(lugares_con_resumen),
+        'resumenes_generados': 0,
+        'embeddings_creados': embeddings_count
+    })
+
+
 if __name__ == "__main__":
     from datetime import datetime
     if "--full" in sys.argv:
         regenerate_full()
+    elif "--embed-only" in sys.argv:
+        regenerate_embeddings_only()
     else:
         regenerate_incremental()
