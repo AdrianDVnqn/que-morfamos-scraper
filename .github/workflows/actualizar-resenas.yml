@@ -11,6 +11,11 @@ on:
         required: false
         type: boolean
         default: false
+      resume:
+        description: 'RESUMIR ejecución fallida (saltar ya procesados)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   monitor-growth:
@@ -70,8 +75,13 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           if [ "${{ github.event.inputs.full_regeneration }}" == "true" ]; then
-            echo "🚨 MODO FULL ACTIVADO: Regenerando TODO..."
-            python regenerate_embeddings.py --full 2>&1 | tee -a run.log
+            if [ "${{ github.event.inputs.resume }}" == "true" ]; then
+              echo "🚨 MODO FULL + RESUME: Continuando regeneración..."
+              python regenerate_embeddings.py --full --resume 2>&1 | tee -a run.log
+            else
+              echo "🚨 MODO FULL ACTIVADO: Regenerando TODO..."
+              python regenerate_embeddings.py --full 2>&1 | tee -a run.log
+            fi
           else
             echo "🔄 Regenerando embeddings inteligentemente (incremental)..."
             python regenerate_embeddings.py 2>&1 | tee -a run.log

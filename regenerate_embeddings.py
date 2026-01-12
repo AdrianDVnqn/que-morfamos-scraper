@@ -140,17 +140,17 @@ def send_discord_report(stats):
         logger.error(f"Error enviando reporte a Discord: {e}")
 
 
-def regenerate_full():
+def regenerate_full(resume=False):
     """Regenera TODOS los resúmenes y embeddings desde cero"""
     start_time = time.time()
-    logger.info("🔄 Regeneración COMPLETA de embeddings con resúmenes")
+    logger.info(f"🔄 Regeneración COMPLETA de embeddings (Resume={resume})")
     
     # Migrar columnas si es necesario
     migrate_embedding_columns()
     
     engine = create_engine(get_sqlalchemy_url(DATABASE_URL))
     
-    # Eliminar todos los embeddings existentes
+    # Eliminar todos los embeddings existentes (correct even for resume, we rebuild the vector store)
     logger.info("🗑️ Eliminando embeddings existentes...")
     deleted = delete_all_embeddings(engine)
     logger.info(f"   Eliminados: {deleted}")
@@ -162,10 +162,33 @@ def regenerate_full():
     docs = []
     procesados = 0
     resumenes_count = 0
+    skipped_count = 0
+    
+    limit_date = datetime.now() - timedelta(hours=24)
     
     for i, lugar in enumerate(lugares):
         nombre = lugar['nombre']
         
+        # Lógica RESUME: Si ya se actualizó en las últimas 24hs, usamos lo que hay
+        if resume and lugar.get('embedding_updated_at'):
+             last_update = lugar['embedding_updated_at']
+             # Asegurar que es datetime
+             if isinstance(last_update, str):
+                 try:
+                     last_update = datetime.fromisoformat(last_update)
+                 except:
+                     pass
+             
+             if isinstance(last_update, datetime) and last_update > limit_date:
+                 resumen = lugar.get('resumen_reviews')
+                 if resumen and len(resumen) > 20:
+                     logger.info(f"[{i+1}/{len(lugares)}] ⏭️ SKIPPING {nombre[:30]}... (Updated: {last_update})")
+                     doc = create_document(lugar, resumen)
+                     if doc:
+                         docs.append(doc)
+                         skipped_count += 1
+                     continue
+
         # Obtener todas las reseñas
         reviews = get_todas_reviews_lugar(nombre)
         
@@ -431,7 +454,8 @@ def regenerate_embeddings_only():
 if __name__ == "__main__":
     from datetime import datetime
     if "--full" in sys.argv:
-        regenerate_full()
+        resume = "--resume" in sys.argv
+        regenerate_full(resume=resume)
     elif "--embed-only" in sys.argv:
         regenerate_embeddings_only()
     else:
