@@ -85,7 +85,8 @@ def delete_all_embeddings(engine):
 
 def create_document(lugar, resumen):
     """Crea un Document de LangChain para un lugar"""
-    if not resumen or len(resumen.strip()) < 20:
+    # Si es el mensaje genérico de falta de info, NO generar embedding
+    if not resumen or len(resumen.strip()) < 20 or "insuficiente información" in resumen:
         return None
     
     rating_raw = lugar.get('rating_gral', 0)

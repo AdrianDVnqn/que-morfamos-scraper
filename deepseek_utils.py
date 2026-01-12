@@ -131,9 +131,9 @@ def generar_resumen_reviews(reviews_data, nombre_lugar=""):
         # Esto asegura que para lugares chicos (ej: 40 reseñas válidas) usemos TODAS
         valid_items = [i for i in reviews_data if i.get('texto') and len(str(i['texto']).strip()) > 30]
         
-        # Si hay menos de 5 reseñas válidas, no generamos resumen (evita info pobre)
+        # Si hay menos de 5 reseñas válidas, generamos un resumen genérico
         if len(valid_items) < 5:
-            return ""
+            return "No se cuenta con suficiente información sobre este lugar para generar un resumen detallado."
         
         # 2. Muestreo estratégico solo sobre las válidas
         items = muestreo_estrategico(valid_items, total=50)
