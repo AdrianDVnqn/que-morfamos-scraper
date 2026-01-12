@@ -57,12 +57,7 @@ jobs:
             echo "has_new_reviews=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Subir Log de Ejecución
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: log-monitor-reviews
-          path: run.log
+
       
       - name: Regenerar Embeddings
         # Correr si:
@@ -141,7 +136,16 @@ jobs:
                   requests.post(webhook, json={'embeds': [{'description': msg, 'color': color}]})
               except Exception as e:
                   print(f'Error enviando notif: {e}')
+              except Exception as e:
+                  print(f'Error enviando notif: {e}')
           "
+
+      - name: Subir Log de Ejecución
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-monitor-reviews
+          path: run.log
       
       - name: Re-trigger si hay pendientes
         if: steps.monitor.outputs.continue == 'true'
