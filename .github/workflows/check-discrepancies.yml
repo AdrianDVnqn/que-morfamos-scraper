@@ -41,22 +41,4 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "
-          import os, requests, datetime
-          
-          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if webhook:
-              try:
-                  content = 'Proceso finalizado.'
-                  if os.path.exists('discord_summary.txt'):
-                      with open('discord_summary.txt', 'r', encoding='utf-8') as f:
-                          content = f.read()
-                  
-                  msg = f'''{content}
-                  📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-                  '''
-                  
-                  requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
-              except Exception as e:
-                  print(f'Error enviando notif: {e}')
-          "
+          python notificador.py --mode validacion --file discord_summary.txt

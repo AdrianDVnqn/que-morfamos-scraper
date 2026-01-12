@@ -92,63 +92,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "
-          import os, requests, datetime, re
-          
-          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if webhook:
-              try:
-                  # Valores por defecto
-                  total_lugares = '?'
-                  procesados = '?'
-                  con_cambios = '?'
-                  nuevas_reviews = '?'
-                  tiempo = '?'
-                  
-                  # Parsear log para extraer estadísticas
-                  if os.path.exists('run.log'):
-                      with open('run.log', 'r', encoding='utf-8', errors='ignore') as f:
-                          log = f.read()
-                          
-                          # Buscar: Lugares a monitorear: X
-                          m = re.search(r'Lugares a monitorear: (\d+)', log)
-                          if m: total_lugares = m.group(1)
-                          
-                          # Buscar: Lugares procesados: X/Y
-                          m = re.search(r'Lugares procesados: (\d+)/(\d+)', log)
-                          if m: procesados = m.group(1)
-                          
-                          # Buscar: Lugares con cambios: X
-                          m = re.search(r'Lugares con cambios: (\d+)', log)
-                          if m: con_cambios = m.group(1)
-                          
-                          # Buscar: Reseñas nuevas: X
-                          m = re.search(r'Reseñas nuevas: (\d+)', log)
-                          if m: nuevas_reviews = m.group(1)
-                          
-                          # Buscar: Tiempo: X.X minutos
-                          m = re.search(r'Tiempo: ([\d.]+) minutos', log)
-                          if m: tiempo = m.group(1)
-                  
-                  msg = f'''📊 **Monitoreo Diario de Reviews**
-          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-          
-          📍 **Lugares totales:** {total_lugares}
-          ✅ **Procesados:** {procesados}
-          🔄 **Con cambios:** {con_cambios}
-          ⭐ **Reseñas nuevas:** {nuevas_reviews}
-          ⏱️ **Tiempo:** {tiempo} min
-          
-          [Ver log completo en GitHub Actions]'''
-                  
-                  color = 0x2ecc71 if nuevas_reviews != '0' else 0x3498db  # Verde si hay nuevas
-                  
-                  requests.post(webhook, json={'embeds': [{'description': msg, 'color': color}]})
-              except Exception as e:
-                  print(f'Error enviando notif: {e}')
-              except Exception as e:
-                  print(f'Error enviando notif: {e}')
-          "
+          python notificador.py --mode monitor_reviews --file run.log
 
       - name: Subir Log de Ejecución
         if: always()

@@ -4,6 +4,9 @@ import csv
 import datetime
 import requests
 import logging
+import argparse
+import re
+import sys
 
 # ==========================================
 # CONFIGURACIÓN
@@ -11,7 +14,7 @@ import logging
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 
-# Archivos a analizar
+# Archivos a analizar (por defecto)
 ARCHIVO_LUGARES = "lugares_encontrados.csv"
 ARCHIVO_VALIDADOS = "lugares_validados.csv"
 ARCHIVO_RECHAZADOS = "lugares_rechazados.csv"
@@ -19,7 +22,7 @@ ARCHIVO_REVIEWS = "reviews_neuquen.csv"
 ARCHIVO_ESTADO_REVIEWS = "estado_reviews.csv"
 ARCHIVO_RESUMEN = "resumen_run.json"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -73,21 +76,14 @@ def obtener_estado_reviews():
     return estados
 
 
-def generar_resumen():
-    """Genera el resumen completo del run"""
+def generar_resumen_lugares():
+    """Genera el resumen completo del run de lugares"""
     ahora = datetime.datetime.now()
     
     # Conteos básicos
     lugares_encontrados = contar_lineas_csv(ARCHIVO_LUGARES)
     lugares_validados = contar_lineas_csv(ARCHIVO_VALIDADOS)
     lugares_rechazados = contar_lineas_csv(ARCHIVO_RECHAZADOS)
-    total_reviews = contar_lineas_csv(ARCHIVO_REVIEWS)
-    
-    # Estado de reviews
-    estado_reviews = obtener_estado_reviews()
-    
-    # Reviews por lugar
-    reviews_por_lugar = obtener_reviews_por_lugar()
     
     resumen = {
         "fecha_ejecucion": ahora.isoformat(),
@@ -97,31 +93,13 @@ def generar_resumen():
             "validados": lugares_validados,
             "rechazados_llm": lugares_rechazados,
             "tasa_aprobacion": f"{(lugares_validados/(lugares_encontrados or 1))*100:.1f}%"
-        },
-        "reviews": {
-            "total": total_reviews,
-            "lugares_con_exito": estado_reviews.get('EXITO', 0),
-            "lugares_sin_opiniones": estado_reviews.get('SIN_OPINIONES', 0),
-            "lugares_con_error": estado_reviews.get('ERROR_TEMPORAL', 0)
-        },
-        "reviews_por_lugar": reviews_por_lugar,
-        "top_10_lugares": dict(sorted(reviews_por_lugar.items(), key=lambda x: x[1], reverse=True)[:10])
+        }
     }
-    
-    # Guardar resumen detallado
-    with open(ARCHIVO_RESUMEN, 'w', encoding='utf-8') as f:
-        json.dump(resumen, f, indent=2, ensure_ascii=False)
-    
-    logger.info(f"Resumen guardado en {ARCHIVO_RESUMEN}")
     return resumen
 
 
-def enviar_discord(mensaje, color=0x00ff00):
+def enviar_discord(mensaje, color=0x00ff00, dry_run=False):
     """Envía mensaje a Discord via webhook"""
-    if not DISCORD_WEBHOOK_URL:
-        logger.warning("DISCORD_WEBHOOK_URL no configurado")
-        return False
-    
     payload = {
         "embeds": [{
             "description": mensaje,
@@ -129,6 +107,14 @@ def enviar_discord(mensaje, color=0x00ff00):
             "timestamp": datetime.datetime.utcnow().isoformat()
         }]
     }
+    
+    if dry_run:
+        logger.info(f"[DRY-RUN] Enviando a Discord:\n{json.dumps(payload, indent=2)}")
+        return True
+
+    if not DISCORD_WEBHOOK_URL:
+        logger.warning("DISCORD_WEBHOOK_URL no configurado")
+        return False
     
     try:
         response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
@@ -143,8 +129,10 @@ def enviar_discord(mensaje, color=0x00ff00):
         return False
 
 
-def enviar_mensaje_lugares(resumen):
-    """Envía mensaje de resumen de LUGARES"""
+def procesar_modo_lugares(args):
+    """Logica para resumen de scraping de lugares"""
+    logger.info("Generando resumen de LUGARES...")
+    resumen = generar_resumen_lugares()
     lugares = resumen['lugares']
     
     mensaje = f"""**🤖 QUE MORFAMOS - Resumen de Lugares**
@@ -155,59 +143,128 @@ def enviar_mensaje_lugares(resumen):
 ❌ **Rechazados por LLM:** {lugares['rechazados_llm']}
 📊 **Tasa de aprobación:** {lugares['tasa_aprobacion']}
 """
+    enviar_discord(mensaje, color=0x3498db, dry_run=args.dry_run)
+
+
+def procesar_modo_monitor(args):
+    """Logica para resumen de monitor de reviews (parseando log)"""
+    file_path = args.file or 'run.log'
+    if not os.path.exists(file_path):
+        logger.error(f"No se encontró el archivo de log: {file_path}")
+        return
+
+    logger.info(f"Analizando log de MONITOR: {file_path}")
     
-    return enviar_discord(mensaje, color=0x3498db)  # Azul
-
-
-def enviar_mensaje_reviews(resumen):
-    """Envía mensaje de resumen de RESEÑAS"""
-    reviews = resumen['reviews']
+    # Valores por defecto
+    stats = {
+        'total_lugares': '?',
+        'procesados': '?',
+        'con_cambios': '?',
+        'nuevas_reviews': '?',
+        'tiempo': '?'
+    }
     
-    mensaje = f"""**⭐ QUE MORFAMOS - Resumen de Reseñas**
-📅 {resumen['fecha_legible']}
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            log_content = f.read()
+            
+            # Regex patterns
+            patterns = {
+                'total_lugares': r'Lugares a monitorear: (\d+)',
+                'procesados': r'Lugares procesados: (\d+)/(\d+)', # Captura el primero pero muestra "X/Y"
+                'con_cambios': r'Lugares con cambios: (\d+)',
+                'nuevas_reviews': r'Reseñas nuevas: (\d+)',
+                'tiempo': r'Tiempo: ([\d.]+) minutos'
+            }
+            
+            for key, pattern in patterns.items():
+                m = re.search(pattern, log_content)
+                if m:
+                    if key == 'procesados':
+                        stats[key] = f"{m.group(1)}/{m.group(2)}"
+                    else:
+                        stats[key] = m.group(1)
+        
+        msg = f"""📊 **Monitoreo Diario de Reviews**
+📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
 
-📝 **Total en dataset:** {reviews['total']}
-✅ **Lugares procesados:** {reviews['lugares_con_exito']}
-🚫 **Sin opiniones:** {reviews['lugares_sin_opiniones']}
-⚠️ **Con errores:** {reviews['lugares_con_error']}
+📍 **Lugares totales:** {stats['total_lugares']}
+✅ **Procesados:** {stats['procesados']}
+🔄 **Con cambios:** {stats['con_cambios']}
+⭐ **Reseñas nuevas:** {stats['nuevas_reviews']}
+⏱️ **Tiempo:** {stats['tiempo']} min
+
+[Ver log completo en GitHub Actions]"""
+
+        color = 0x2ecc71 if stats['nuevas_reviews'] != '0' and stats['nuevas_reviews'] != '?' else 0x3498db
+        enviar_discord(msg, color=color, dry_run=args.dry_run)
+
+    except Exception as e:
+        logger.error(f"Error parseando log monitoreo: {e}")
+
+
+def procesar_modo_validacion(args):
+    """Logica para enviar reporte de validacion (txt)"""
+    file_path = args.file or 'discord_summary.txt'
+    
+    content = 'Proceso finalizado.'
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            logger.warning(f"No se pudo leer {file_path}: {e}")
+    else:
+        logger.warning(f"Archivo {file_path} no existe, enviando mensaje default.")
+
+    msg = f"""{content}
+📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
 """
+    enviar_discord(msg, color=0xe74c3c, dry_run=args.dry_run)
+
+
+def procesar_modo_generico(args):
+    """Envía un mensaje genérico pasado por argumento"""
+    if not args.message:
+        logger.error("Debe especificar --message para modo genérico")
+        return
     
-    # Agregar top 5 lugares
-    if resumen.get('top_10_lugares'):
-        mensaje += "\n🏆 **Top 5 por reseñas:**\n"
-        for i, (nombre, count) in enumerate(list(resumen['top_10_lugares'].items())[:5], 1):
-            mensaje += f"> {i}. {nombre[:30]}: **{count}**\n"
-    
-    return enviar_discord(mensaje, color=0xf1c40f)  # Amarillo
+    msg = f"""{args.title or '📢 Notificación'}
+📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+
+{args.message}
+"""
+    color_map = {'info': 0x3498db, 'success': 0x2ecc71, 'error': 0xe74c3c, 'warning': 0xf1c40f}
+    enviar_discord(msg, color=color_map.get(args.type, 0x3498db), dry_run=args.dry_run)
 
 
 # ==========================================
 # MAIN
 # ==========================================
 if __name__ == "__main__":
-    logger.info("=== Generando resumen y notificación ===")
+    parser = argparse.ArgumentParser(description='Notificador Discord para Que Morfamos Scraper')
     
-    # Generar resumen
-    resumen = generar_resumen()
-    
-    # Enviar mensaje de LUGARES
-    logger.info("Enviando resumen de lugares...")
-    enviar_mensaje_lugares(resumen)
-    
-    # Pequeña pausa entre mensajes
-    import time
-    time.sleep(1)
-    
-    # Enviar mensaje de RESEÑAS
-    logger.info("Enviando resumen de reseñas...")
-    enviar_mensaje_reviews(resumen)
-    
-    # Imprimir resumen en consola
-    print("\n" + "="*50)
-    print("RESUMEN DEL RUN")
-    print("="*50)
-    print(f"Lugares encontrados: {resumen['lugares']['encontrados']}")
-    print(f"Lugares validados: {resumen['lugares']['validados']}")
-    print(f"Lugares rechazados: {resumen['lugares']['rechazados_llm']}")
-    print(f"Total reseñas: {resumen['reviews']['total']}")
-    print("="*50)
+    parser.add_argument('--mode', choices=['lugares', 'monitor_reviews', 'validacion', 'generic'], 
+                        required=True, help='Modo de operación')
+    parser.add_argument('--file', help='Archivo de entrada (opcional, depende del modo)')
+    parser.add_argument('--dry-run', action='store_true', help='Ejecutar sin enviar a Discord')
+    parser.add_argument('--message', help='Mensaje para modo genérico')
+    parser.add_argument('--title', help='Título para modo genérico')
+    parser.add_argument('--type', choices=['info', 'success', 'error', 'warning'], default='info', help='Tipo de mensaje genérico')
+
+    args = parser.parse_args()
+
+    try:
+        if args.mode == 'lugares':
+            procesar_modo_lugares(args)
+        elif args.mode == 'monitor_reviews':
+            procesar_modo_monitor(args)
+        elif args.mode == 'validacion':
+            procesar_modo_validacion(args)
+        elif args.mode == 'generic':
+            procesar_modo_generico(args)
+            
+    except Exception as e:
+        logger.error(f"Fallo global en notificador: {e}")
+        sys.exit(1)
+

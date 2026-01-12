@@ -28,17 +28,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "
-          import os, requests, datetime
-          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if webhook:
-              msg = f'''🚀 **INICIANDO - Actualización de Lugares**
-              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-              
-              Comenzando scraping de restaurantes en Google Maps...'''
-              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x9b59b6}]})
-              print('✓ Notificación de inicio enviada')
-          "
+          python notificador.py --mode generic --type info --title "Actualización de Lugares" --message "🚀 Iniciando scraping de restaurantes..."
       
       - name: Instalar Chrome
         uses: browser-actions/setup-chrome@v1
@@ -105,35 +95,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "
-          import os, csv, requests, datetime
-          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if not webhook: exit(0)
-
-          encontrados = validados = rechazados = 0
-          try:
-              with open('lugares_encontrados.csv', 'r') as f:
-                  encontrados = sum(1 for _ in csv.reader(f)) - 1
-          except: pass
-          try:
-              with open('lugares_validados.csv', 'r') as f:
-                  validados = sum(1 for _ in csv.reader(f)) - 1
-          except: pass
-          try:
-              with open('lugares_rechazados.csv', 'r') as f:
-                  rechazados = sum(1 for _ in csv.reader(f)) - 1
-          except: pass
-
-          msg = f'''✅ **COMPLETADO - Actualización de Lugares**
-          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-
-          📍 Lugares encontrados: **{encontrados}**
-          ✅ Validados: **{validados}**
-          ❌ Rechazados: **{rechazados}**'''
-
-          requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0x2ecc71}]})
-          print('✓ Notificación de éxito enviada')
-          "
+          python notificador.py --mode lugares
       
       # NOTIFICACIÓN DE ERROR (si algo falló)
       - name: Notificar error
@@ -141,14 +103,4 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          python -c "
-          import os, requests, datetime
-          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
-          if webhook:
-              msg = f'''❌ **ERROR - Actualización de Lugares**
-              📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-              
-              El workflow falló. Revisar los logs en GitHub Actions.'''
-              requests.post(webhook, json={'embeds': [{'description': msg, 'color': 0xe74c3c}]})
-              print('✓ Notificación de error enviada')
-          "
+          python notificador.py --mode generic --type error --title "Error en Actualización de Lugares" --message "❌ El workflow falló. Revisar logs en GitHub Actions."
