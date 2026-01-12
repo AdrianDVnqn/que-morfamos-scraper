@@ -1,0 +1,135 @@
+name: Actualización Diaria de Reseñas
+
+on:
+  schedule:
+    # Ejecutar todos los días a las 22:00 HS Argentina (01:00 UTC)
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  monitor-growth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Instalar Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      
+      - name: Instalar dependencias
+        run: |
+          pip install selenium webdriver-manager psycopg2-binary requests beautifulsoup4
+      
+      - name: Ejecutar Monitor
+        id: monitor
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python monitor_reviews.py 2>&1 | tee run.log
+          # Guardar si hay pendientes para continuar
+          if grep -q "CONTINUE_NEEDED" run.log; then
+            echo "continue=true" >> $GITHUB_OUTPUT
+          else
+            echo "continue=false" >> $GITHUB_OUTPUT
+          fi
+          # Guardar si hay nuevas reviews para regenerar embeddings
+          if grep -q "Reseñas nuevas: [1-9]" run.log; then
+            echo "has_new_reviews=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_new_reviews=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Subir Log de Ejecución
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-monitor-reviews
+          path: run.log
+      
+      - name: Regenerar Embeddings
+        if: success() && steps.monitor.outputs.has_new_reviews == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "🔄 Regenerando embeddings para nuevas reseñas..."
+          pip install pandas langchain-openai langchain-postgres sqlalchemy
+          python regenerate_embeddings.py 2>&1 | tee -a run.log
+      
+      - name: Notificar a Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import os, requests, datetime, re
+          
+          webhook = os.environ.get('DISCORD_WEBHOOK_URL')
+          if webhook:
+              try:
+                  # Valores por defecto
+                  total_lugares = '?'
+                  procesados = '?'
+                  con_cambios = '?'
+                  nuevas_reviews = '?'
+                  tiempo = '?'
+                  
+                  # Parsear log para extraer estadísticas
+                  if os.path.exists('run.log'):
+                      with open('run.log', 'r', encoding='utf-8', errors='ignore') as f:
+                          log = f.read()
+                          
+                          # Buscar: Lugares a monitorear: X
+                          m = re.search(r'Lugares a monitorear: (\d+)', log)
+                          if m: total_lugares = m.group(1)
+                          
+                          # Buscar: Lugares procesados: X/Y
+                          m = re.search(r'Lugares procesados: (\d+)/(\d+)', log)
+                          if m: procesados = m.group(1)
+                          
+                          # Buscar: Lugares con cambios: X
+                          m = re.search(r'Lugares con cambios: (\d+)', log)
+                          if m: con_cambios = m.group(1)
+                          
+                          # Buscar: Reseñas nuevas: X
+                          m = re.search(r'Reseñas nuevas: (\d+)', log)
+                          if m: nuevas_reviews = m.group(1)
+                          
+                          # Buscar: Tiempo: X.X minutos
+                          m = re.search(r'Tiempo: ([\d.]+) minutos', log)
+                          if m: tiempo = m.group(1)
+                  
+                  msg = f'''📊 **Monitoreo Diario de Reviews**
+          📅 {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
+          
+          📍 **Lugares totales:** {total_lugares}
+          ✅ **Procesados:** {procesados}
+          🔄 **Con cambios:** {con_cambios}
+          ⭐ **Reseñas nuevas:** {nuevas_reviews}
+          ⏱️ **Tiempo:** {tiempo} min
+          
+          [Ver log completo en GitHub Actions]'''
+                  
+                  color = 0x2ecc71 if nuevas_reviews != '0' else 0x3498db  # Verde si hay nuevas
+                  
+                  requests.post(webhook, json={'embeds': [{'description': msg, 'color': color}]})
+              except Exception as e:
+                  print(f'Error enviando notif: {e}')
+          "
+      
+      - name: Re-trigger si hay pendientes
+        if: steps.monitor.outputs.continue == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "🔄 Hay lugares pendientes, reiniciando workflow..."
+          gh workflow run actualizar-resenas.yml
