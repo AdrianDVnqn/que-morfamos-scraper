@@ -127,9 +127,12 @@ def generar_resumen_reviews(reviews_data, nombre_lugar=""):
     if reviews_data and isinstance(reviews_data[0], str):
         items = [{'texto': t, 'rating': '?'} for t in reviews_data if t and len(str(t).strip()) > 20][:50]
     else:
-        # Muestreo estratégico (retorna objetos dict)
-        items = muestreo_estrategico(reviews_data, total=50)
-        items = [i for i in items if i.get('texto') and len(str(i['texto']).strip()) > 20]
+        # 1. Filtrar primero las reseñas válidas (> 20 chars)
+        # Esto asegura que para lugares chicos (ej: 40 reseñas válidas) usemos TODAS
+        valid_items = [i for i in reviews_data if i.get('texto') and len(str(i['texto']).strip()) > 20]
+        
+        # 2. Muestreo estratégico solo sobre las válidas
+        items = muestreo_estrategico(valid_items, total=50)
     
     if not items:
         return ""
