@@ -60,16 +60,23 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
             url_es += ('&' if '?' in url_es else '?') + 'hl=es'
         
         driver.get(url_es)
-        time.sleep(2)
         
-        # Esperar carga básica
+        # Esperar carga completa (h1 + div.F7nice con el conteo)
         try:
             WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+            WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.F7nice")))
         except:
+            # Si no carga, refrescar y reintentar
             driver.refresh()
             time.sleep(3)
+            try:
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.F7nice")))
+            except:
+                pass
         
-        # Extraer conteo actual de la página (rápido, sin ir a pestaña reviews)
+        time.sleep(2)  # Espera adicional para carga completa
+        
+        # Extraer conteo actual de la página
         count_actual = detectar_total_reviews(driver)
         rating_actual = extraer_rating_page(driver)
         

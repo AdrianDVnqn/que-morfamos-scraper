@@ -171,14 +171,56 @@ def ordenar_por_recientes(driver):
 
 
 def detectar_total_reviews(driver):
-    """Detecta cantidad total de reseñas desde la página"""
+    """Detecta cantidad total de reseñas desde la página con múltiples métodos"""
+    
+    # Método 1: Buscar en div.F7nice (contiene "4,1\n(5101)")
+    try:
+        header = driver.find_element(By.CSS_SELECTOR, "div.F7nice")
+        text = header.text  # "4,1\n(5.101)" o similar
+        count_match = re.search(r'\(([\d\.]+)\)', text)
+        if count_match:
+            raw_num = count_match.group(1).replace('.', '').replace(',', '')
+            if raw_num.isdigit():
+                return int(raw_num)
+    except:
+        pass
+    
+    # Método 2: Buscar botones con aria-label que mencionen opiniones/reviews
+    try:
+        botones = driver.find_elements(By.CSS_SELECTOR, "button[aria-label*='opiniones'], button[aria-label*='reviews'], button[aria-label*='reseñas']")
+        for btn in botones:
+            lbl = btn.get_attribute("aria-label") or ""
+            nums = re.findall(r'[\d\.]+', lbl)
+            if nums:
+                candidatos = [int(n.replace('.', '').replace(',', '')) for n in nums if n.replace('.', '').replace(',', '').isdigit()]
+                if candidatos:
+                    return max(candidatos)
+    except:
+        pass
+    
+    # Método 3: Buscar span que contenga solo "(X.XXX)"
+    try:
+        spans = driver.find_elements(By.TAG_NAME, "span")
+        for span in spans:
+            text = span.text.strip()
+            if re.match(r'^\([\d\.]+\)$', text):
+                num = text.strip('()').replace('.', '')
+                if num.isdigit():
+                    return int(num)
+    except:
+        pass
+    
+    # Método 4: Buscar en fontDisplayLarge -> parent -> fontBodySmall
     try:
         score = driver.find_element(By.XPATH, "//div[contains(@class, 'fontDisplayLarge')]")
         total_txt = score.find_element(By.XPATH, "..").find_element(By.CLASS_NAME, "fontBodySmall").text
         clean = re.search(r'([\d.,]+)', total_txt).group(1).replace('.', '').replace(',', '')
-        return int(clean)
-    except: 
-        return 0
+        if clean.isdigit():
+            return int(clean)
+    except:
+        pass
+    
+    return 0
 
 
 def expandir_resenas_largas(driver):
