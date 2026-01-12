@@ -650,3 +650,163 @@ def get_ultimas_N_reviews_restaurante(restaurante_nombre, n=2):
     finally:
         cursor.close()
 
+
+def migrate_embedding_columns():
+    """
+    Agrega columnas necesarias para el sistema de embeddings inteligentes.
+    Seguro de ejecutar múltiples veces (usa IF NOT EXISTS).
+    """
+    conn = get_connection()
+    if not conn:
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Agregar columna resumen_reviews si no existe
+        cursor.execute("""
+            ALTER TABLE lugares 
+            ADD COLUMN IF NOT EXISTS resumen_reviews TEXT
+        """)
+        
+        # Agregar columna embedding_updated_at si no existe
+        cursor.execute("""
+            ALTER TABLE lugares 
+            ADD COLUMN IF NOT EXISTS embedding_updated_at TIMESTAMP
+        """)
+        
+        conn.commit()
+        logger.info("✅ Migración de columnas de embedding completada")
+        return True
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"❌ Error en migración: {e}")
+        return False
+    finally:
+        cursor.close()
+
+
+def get_lugares_para_embedding():
+    """
+    Obtiene todos los lugares con sus reviews para generar embeddings.
+    Retorna: lista de dicts con nombre, resumen_reviews, embedding_updated_at
+    """
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT nombre, resumen_reviews, embedding_updated_at, 
+                   rating_gral, direccion, zona, barrio, categoria
+            FROM lugares
+            ORDER BY nombre
+        """)
+        rows = cursor.fetchall()
+        return [
+            {
+                'nombre': row[0],
+                'resumen_reviews': row[1],
+                'embedding_updated_at': row[2],
+                'rating_gral': row[3],
+                'direccion': row[4],
+                'zona': row[5],
+                'barrio': row[6],
+                'categoria': row[7]
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo lugares para embedding: {e}")
+        return []
+    finally:
+        cursor.close()
+
+
+def get_reviews_nuevas_sin_embedding(lugar_nombre, desde_fecha):
+    """
+    Obtiene reseñas de un lugar que son más nuevas que la fecha dada.
+    """
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        if desde_fecha:
+            cursor.execute("""
+                SELECT texto FROM reviews 
+                WHERE restaurante = %s AND fecha_scraping > %s
+                ORDER BY fecha_scraping DESC
+            """, (lugar_nombre, desde_fecha))
+        else:
+            # Si no hay fecha, obtener todas
+            cursor.execute("""
+                SELECT texto FROM reviews 
+                WHERE restaurante = %s
+                ORDER BY fecha_scraping DESC
+            """, (lugar_nombre,))
+        
+        rows = cursor.fetchall()
+        return [row[0] for row in rows if row[0]]
+    except Exception as e:
+        logger.error(f"Error obteniendo reviews nuevas: {e}")
+        return []
+    finally:
+        cursor.close()
+
+
+def get_todas_reviews_lugar(lugar_nombre):
+    """
+    Obtiene todas las reseñas de un lugar con texto y rating.
+    Retorna lista de dicts con 'texto' y 'rating'.
+    """
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT texto, rating_user, fecha_scraping FROM reviews 
+            WHERE restaurante = %s
+            ORDER BY fecha_scraping DESC
+        """, (lugar_nombre,))
+        
+        rows = cursor.fetchall()
+        return [
+            {'texto': row[0], 'rating': row[1], 'fecha': row[2]}
+            for row in rows if row[0]
+        ]
+    except Exception as e:
+        logger.error(f"Error obteniendo todas las reviews: {e}")
+        return []
+    finally:
+        cursor.close()
+
+
+def actualizar_resumen_lugar(nombre, resumen):
+    """
+    Actualiza el resumen y la fecha de embedding de un lugar.
+    """
+    conn = get_connection()
+    if not conn:
+        return False
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE lugares 
+            SET resumen_reviews = %s, 
+                embedding_updated_at = NOW()
+            WHERE nombre = %s
+        """, (resumen, nombre))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error actualizando resumen: {e}")
+        return False
+    finally:
+        cursor.close()

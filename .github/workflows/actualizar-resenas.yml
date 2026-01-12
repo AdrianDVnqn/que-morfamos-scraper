@@ -5,6 +5,12 @@ on:
     # Ejecutar todos los días a las 22:00 HS Argentina (01:00 UTC)
     - cron: '0 1 * * *'
   workflow_dispatch:
+    inputs:
+      full_regeneration:
+        description: 'Regeneración COMPLETA de embeddings (costoso)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   monitor-growth:
@@ -27,21 +33,24 @@ jobs:
       
       - name: Instalar dependencias
         run: |
-          pip install selenium webdriver-manager psycopg2-binary requests beautifulsoup4
+          pip install selenium webdriver-manager psycopg2-binary requests beautifulsoup4 pandas langchain-openai langchain-postgres sqlalchemy
       
       - name: Ejecutar Monitor
         id: monitor
+        # Solo correr el monitor si NO es una regeneración completa forzada
+        if: github.event.inputs.full_regeneration != 'true'
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           python monitor_reviews.py 2>&1 | tee run.log
-          # Guardar si hay pendientes para continuar
+          
+          # Lógica original de outputs
           if grep -q "CONTINUE_NEEDED" run.log; then
             echo "continue=true" >> $GITHUB_OUTPUT
           else
             echo "continue=false" >> $GITHUB_OUTPUT
           fi
-          # Guardar si hay nuevas reviews para regenerar embeddings
+          
           if grep -q "Reseñas nuevas: [1-9]" run.log; then
             echo "has_new_reviews=true" >> $GITHUB_OUTPUT
           else
@@ -56,14 +65,22 @@ jobs:
           path: run.log
       
       - name: Regenerar Embeddings
-        if: success() && steps.monitor.outputs.has_new_reviews == 'true'
+        # Correr si:
+        # 1. Es regeneración forzada (full_regeneration == true)
+        # 2. O si el monitor detectó nuevas reviews (has_new_reviews == true)
+        if: success() && (github.event.inputs.full_regeneration == 'true' || steps.monitor.outputs.has_new_reviews == 'true')
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          echo "🔄 Regenerando embeddings para nuevas reseñas..."
-          pip install pandas langchain-openai langchain-postgres sqlalchemy
-          python regenerate_embeddings.py 2>&1 | tee -a run.log
+          if [ "${{ github.event.inputs.full_regeneration }}" == "true" ]; then
+            echo "🚨 MODO FULL ACTIVADO: Regenerando TODO..."
+            python regenerate_embeddings.py --full 2>&1 | tee -a run.log
+          else
+            echo "🔄 Regenerando embeddings inteligentemente (incremental)..."
+            python regenerate_embeddings.py 2>&1 | tee -a run.log
+          fi
       
       - name: Notificar a Discord
         if: always()

@@ -21,3 +21,5 @@ venv/
 # IDEs
 .vscode/
 .idea/
+
+mis_claves.env
