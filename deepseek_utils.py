@@ -127,9 +127,13 @@ def generar_resumen_reviews(reviews_data, nombre_lugar=""):
     if reviews_data and isinstance(reviews_data[0], str):
         items = [{'texto': t, 'rating': '?'} for t in reviews_data if t and len(str(t).strip()) > 20][:50]
     else:
-        # 1. Filtrar primero las reseñas válidas (> 20 chars)
+        # 1. Filtrar primero las reseñas válidas (> 30 chars, consistencia con regenerate_embeddings)
         # Esto asegura que para lugares chicos (ej: 40 reseñas válidas) usemos TODAS
-        valid_items = [i for i in reviews_data if i.get('texto') and len(str(i['texto']).strip()) > 20]
+        valid_items = [i for i in reviews_data if i.get('texto') and len(str(i['texto']).strip()) > 30]
+        
+        # Si hay menos de 5 reseñas válidas, no generamos resumen (evita info pobre)
+        if len(valid_items) < 5:
+            return ""
         
         # 2. Muestreo estratégico solo sobre las válidas
         items = muestreo_estrategico(valid_items, total=50)
