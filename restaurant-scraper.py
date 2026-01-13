@@ -205,10 +205,15 @@ def obtener_links_de_busqueda(query, max_reintentos=3):
                         href = link_elem.get_attribute("href")
                         nombre = link_elem.get_attribute("aria-label") or "Desconocido"
 
-                        # Rating (ej: "4.5")
+                        # Rating (ej: "4.5" o "4,5")
                         try:
                             rating_text = card.find_element(By.CSS_SELECTOR, ".MW4etd").text
-                            rating_gral = rating_text.replace(',', '.') if rating_text else None
+                            if rating_text:
+                                # Normalizar y convertir a float
+                                rating_clean = rating_text.replace(',', '.')
+                                rating_gral = float(rating_clean)
+                            else:
+                                rating_gral = None
                         except:
                             rating_gral = None
 
