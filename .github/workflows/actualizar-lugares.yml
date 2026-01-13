@@ -88,6 +88,13 @@ jobs:
           git add .
           git commit -m "Actualización de lugares - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
           git push
+
+      # ETAPA 4: Asegurar consistencia de zonas en DB
+      - name: Reasignar Barrios y Zonas (Bulk Update)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python asignar_barrios.py
       
       # NOTIFICACIÓN DE ÉXITO (solo si todo salió bien)
       - name: Notificar éxito

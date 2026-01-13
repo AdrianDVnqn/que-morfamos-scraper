@@ -9,41 +9,7 @@ logger = logging.getLogger(__name__)
 # Cache para el GeoDataFrame de barrios
 _GDF_BARRIOS = None
 
-ZONAS_MAP = {
-    # CENTRO
-    'AREA CENTRO ESTE': 'Centro / Comercial',
-    'AREA CENTRO OESTE': 'Centro / Comercial',
-    'AREA CENTRO SUR': 'Bajo / Comercial Antiguo',
-    'SANTA GENOVEVA': 'Residencial VIP / Cerca Centro',
-    
-    # RÍO / PASEO DE LA COSTA
-    'RIO GRANDE': 'Paseo de la Costa / Turístico',
-    'LIMAY': 'Ribereño / Balnearios',
-    'CONFLUENCIA RURAL': 'Rural / Paseo Costero',
-    'CONFLUENCIA URBANA': 'Residencial Denso / Sur',
-    'VALENTINA SUR RURAL': 'Rural / Casas de Té',
-    
-    # NORTE / BARDAS
-    'ALTA BARDA': 'Norte / Residencial',
-    'RINCON DE EMILIO': 'Norte / Río Neuquén',
-    'PARQUE INDUSTRIAL': 'Industrial',
-    'CIUDAD INDUSTRIAL': 'Industrial',
-    
-    # OESTE (Alta densidad)
-    'VILLA FLORENCIA': 'Oeste / Residencial',
-    'VILLA CEFERINO': 'Oeste Profundo',
-    'SAN LORENZO NORTE': 'Oeste Profundo',
-    'SAN LORENZO SUR': 'Oeste Profundo',
-    'GRAN NEUQUEN NORTE': 'Oeste / Alta Densidad',
-    'GRAN NEUQUEN SUR': 'Oeste / Alta Densidad',
-    'MELIPAL': 'Oeste / Residencial',
-    'UNION DE MAYO': 'Oeste / Residencial',
-    'GREGORIO ALVAREZ': 'Oeste / Bloques',
-    'ISLAS MALVINAS': 'Oeste / Alta Densidad',
-    'BOUQUET ROLDAN': 'Oeste / Cerca Centro'
-}
-
-BARRIOS_RIO = ['RIO GRANDE', 'LIMAY', 'CONFLUENCIA RURAL', 'RINCON DE EMILIO', 'VALENTINA SUR RURAL']
+from asignar_barrios import ZONAS_MAP, BARRIOS_RIO
 
 def extraer_coordenadas_url(url):
     """Extrae latitud y longitud de una URL de Google Maps"""

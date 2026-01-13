@@ -38,41 +38,14 @@ jobs:
       
       - name: Instalar dependencias geoespaciales
         run: |
-          pip install pandas geopandas
+          pip install pandas geopandas psycopg2-binary SQLAlchemy
       
-      # Descargar datos del repo privado
-      - name: Descargar datos
+      # Ejecutar asignación de barrios (Supabase Directo)
+      - name: Asignar barrios (Supabase)
         env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          git clone "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/AdrianDVnqn/que-morfamos.git" private-repo
-          cp private-repo/data/reviews_neuquen.csv . 2>/dev/null || echo "No hay reviews_neuquen.csv"
-          
-          if [ ! -f reviews_neuquen.csv ]; then
-            echo "ERROR: No existe reviews_neuquen.csv"
-            echo "Primero ejecutá el workflow 'Actualizar Reseñas'"
-            exit 1
-          fi
-          
-          echo "✓ Reseñas encontradas: $(wc -l < reviews_neuquen.csv) líneas"
-      
-      # Ejecutar asignación de barrios
-      - name: Asignar barrios
-        run: python asignar-barrios.py
-      
-      # Subir resultados
-      - name: Subir resultados
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        run: |
-          cp reviews_neuquen.csv private-repo/data/
-          
-          cd private-repo
-          git config user.name "GitHub Actions Bot"
-          git config user.email "actions@github.com"
-          git add .
-          git commit -m "Barrios asignados - $(date '+%Y-%m-%d %H:%M:%S')" || echo "Sin cambios"
-          git push
+          python asignar_barrios.py
       
       # Notificación de éxito
       - name: Notificar éxito

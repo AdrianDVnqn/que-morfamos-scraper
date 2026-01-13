@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../MCD_24-26/restaurant-scraping/frontend"
+		},
+		{
+			"path": "."
+		},
+		{
+			"path": "../MCD_24-26/restaurant-scraping/backend"
+		},
+		{
+			"path": "../que-morfamos-dashboard"
+		}
+	],
+	"settings": {}
+}
