@@ -15,7 +15,9 @@ from db_utils import (
     get_ultimas_N_reviews_restaurante,
     insertar_reviews_batch,
     get_connection,
-    close_connection
+    close_connection,
+    log_review_history,
+    ensure_history_table_exists
 )
 from scraping_utils import (
     crear_driver,
@@ -171,6 +173,10 @@ def run_monitor():
         return
     logger.info("✅ Conexión a Supabase establecida")
     
+    # Asegurar que existe la tabla review_history
+    ensure_history_table_exists()
+    logger.info("✅ Tabla review_history verificada")
+    
     # Obtener todos los lugares (ordenados por fecha_scraping más antigua)
     lugares = get_lugares_para_monitoreo(limit=10000)
     if not lugares:
@@ -216,6 +222,22 @@ def run_monitor():
             try:
                 # Procesar lugar
                 reviews, estado = procesar_lugar(driver, lugar, ultimas_reviews)
+                
+                # Registrar en review_history para el dashboard Monitor
+                # Esto se hace siempre que procesemos un lugar exitosamente
+                count_actual = lugar.get('last_count', 0) or 0
+                if reviews:
+                    count_actual = count_actual + len(reviews)
+                
+                delta = log_review_history(
+                    url=lugar['url'],
+                    current_count=count_actual,
+                    current_rating=None,  # Ya se actualizó en procesar_lugar
+                    nombre=nombre,
+                    direccion=lugar.get('direccion')
+                )
+                if delta and delta > 0:
+                    logger.info(f"   📊 Historial: +{delta} reviews")
                 
                 if estado == 'NUEVAS_REVIEWS' and reviews:
                     # Insertar reviews en DB

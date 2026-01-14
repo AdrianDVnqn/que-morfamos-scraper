@@ -169,36 +169,29 @@ def cargar_estado():
         # Fallback a CSV muy básico si no hay DB (opcional, o retornar vacío)
         return {}
 
-def actualizar_estado(url, estado, mensaje="", incrementar_intento=False):
-    """Actualiza el estado de una URL logueando en la DB"""
-    # Obtener intentos previos (costoso consultar DB por cada uno? 
-    # Mejor: pasamos intentos como argumento si lo tenemos en memoria,
-    # O asumimos que el script mantiene el estado de 'intentos' en memoria en la lista 'pendientes')
+def actualizar_estado(url, estado, mensaje="", reviews_detectadas=0, nuevas_reviews=0, incrementar_intento=False):
+    """
+    Actualiza el estado de una URL logueando en la DB.
     
-    # IMPORTANTE: El script principal usa 'lugar' dict que viene de 'pendientes'.
-    # 'pendientes' se carga con 'intentos' desde 'cargar_estado'.
-    # Así que el valor 'intentos' debe gestionarse en el bucle principal y pasarse aquí?
-    # O 'actualizar_estado' calcula.
-    
-    # Para simplificar y no cambiar todas las firmas de función:
-    # Si estado es ERROR, asumimos que incrementamos intentos respecto a lo que había.
-    # Pero aquí no leemos "lo que había". 
-    # El script tiene una variable local 'intentos' (ver abajo en cargar_estado).
-    
-    # Solución: Loguear eventos puros. El cálculo de "intentos acumulados" se hace al LEER (cargar_estado).
-    # Pero log_scraping_event acepta 'intentos'. ¿Qué valor mandamos?
-    # Vamos a mandar 1 por defecto, o el valor que calculemos.
-    
+    Args:
+        url: URL del lugar procesado
+        estado: Estado del procesamiento (EXITO, ERROR_TEMPORAL, etc.)
+        mensaje: Mensaje descriptivo
+        reviews_detectadas: Total de reviews detectadas en la página
+        nuevas_reviews: Reviews nuevas insertadas
+        incrementar_intento: Si incrementar contador de intentos
+    """
     intentos = 1
-    # Hack: Si el mensaje contiene "intento X", podríamos parsearlo.
-    # O mejor: confiamos en que 'cargar_estado' calculará bien basado en logs.
     
-    # Si tenemos DB
     if DB_AVAILABLE:
-        # Nota: mensaje se recorta
-        log_scraping_event(url, estado, str(mensaje)[:200], intentos=intentos)
-    else:
-        pass # No persistencia local compleja
+        log_scraping_event(
+            url=url, 
+            estado=estado, 
+            mensaje=str(mensaje)[:200],
+            reviews_detectadas=reviews_detectadas,
+            nuevas_reviews=nuevas_reviews,
+            intentos=intentos
+        )
 
 
 
@@ -261,16 +254,16 @@ def cargar_reviews_existentes_por_restaurante(restaurante_nombre):
 
 def guardar_reviews(reviews_data):
     """
-    Guarda reseñas de forma incremental.
-    - Primero intenta insertar en Supabase/PostgreSQL
-    - Luego guarda en CSV como backup
+    Guarda reseñas de forma incremental en Supabase/PostgreSQL.
+    El logging a scraping_logs se hace en actualizar_estado(), no aquí.
     """
     if not reviews_data:
         return 0
     
     insertadas_db = 0
+    duplicadas_db = 0
     
-    # 1. Intentar insertar en base de datos (Supabase)
+    # Insertar en base de datos (Supabase)
     if DB_AVAILABLE:
         try:
             insertadas_db, duplicadas_db = insertar_reviews_batch(reviews_data)
@@ -278,42 +271,6 @@ def guardar_reviews(reviews_data):
         except Exception as e:
             logger.warning(f"   ⚠️ Error insertando en DB: {e}")
     
-    # 2. Guardar en CSV como backup (siempre)
-    # The following line seems to be a partial copy-paste from another context.
-    # Assuming the intent was to remove the CSV writing block and add the logging.
-    # The original `es_nuevo = not os.path.exists(ARCHIVO_REVIEWS)` and subsequent CSV logic is removed.
-    # The `mensaje_final` and `log_scraping_event` are added.
-    # The variables `nuevas_encontradas` and `total_reviews_google` are not defined in this function,
-    # which suggests this snippet might be intended for a different context or requires additional changes.
-    # For now, I will insert the provided snippet as faithfully as possible, assuming these variables
-    # would be defined elsewhere or are placeholders.
-    
-    # Placeholder for variables that would be defined in the calling context
-    # For the purpose of this edit, I'll assume they exist or are handled by the user.
-    nuevas_encontradas = insertadas_db # Assuming new reviews are those inserted into DB
-    total_reviews_google = len(reviews_data) # Assuming total reviews detected is the batch size
-    
-    mensaje_final = f"Nuevas: {nuevas_encontradas}, Duplicadas: {duplicadas_db}" # Using duplicadas_db from above
-    
-    # --- LOGGING A DATABASE ---
-    try:
-        from db_utils import log_scraping_event
-        log_scraping_event(
-            url=url, # url is not defined in this function, assuming it's passed or globally available
-            estado='EXITO',
-            mensaje=mensaje_final,
-            reviews_detectadas=total_reviews_google,
-            nuevas_reviews=nuevas_encontradas
-        )
-    except Exception as e:
-        logger.warning(f"Error guardando log en DB: {e}")
-
-    # (Opcional) Guardar en CSV solo si falla DB o como backup local (podríamos quitarlo para limpieza)
-    # Por ahora mantenemos CSV para no romper compatibilidad inmediata hasta migrar validacion
-    # ... pero el objetivo es reemplazarlo. Comentamos CSV.
-    # log_csv(url, 'EXITO', mensaje_final)
-    
-    # Retornar cantidad insertada en DB si disponible, si no la cantidad total
     return insertadas_db if DB_AVAILABLE and insertadas_db > 0 else len(reviews_data)
 
 # ==========================================
@@ -704,7 +661,11 @@ def procesar_restaurante(lugar, indice, total, tiempo_inicio):
     finally:
         driver.quit()
     
-    actualizar_estado(url, estado, mensaje)
+    actualizar_estado(
+        url, estado, mensaje,
+        reviews_detectadas=metadata.get('total_google', 0),
+        nuevas_reviews=reviews_nuevas if estado == 'EXITO' else 0
+    )
     return reviews_data, estado
 
 
@@ -953,7 +914,11 @@ def procesar_restaurante_con_driver(driver, lugar, tiempo_inicio):
     
     # NO cerramos el driver aquí - se reutiliza
     
-    actualizar_estado(url, estado, mensaje)
+    actualizar_estado(
+        url, estado, mensaje,
+        reviews_detectadas=metadata.get('total_google', 0),
+        nuevas_reviews=reviews_nuevas if estado == 'EXITO' else 0
+    )
     return reviews_data, estado
 
 
