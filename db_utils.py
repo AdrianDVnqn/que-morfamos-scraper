@@ -148,10 +148,23 @@ def upsert_lugar(lugar_data):
         """
         
         # Preparar datos (usando el nombre potencialmente modificado)
+        # Normalizar rating: convertir coma decimal a punto (ej: "4,0" -> "4.0")
+        rating_raw = lugar_data.get('rating_gral')
+        rating_normalizado = None
+        if rating_raw is not None:
+            try:
+                # Si es string, reemplazar coma por punto
+                if isinstance(rating_raw, str):
+                    rating_normalizado = float(rating_raw.replace(',', '.'))
+                else:
+                    rating_normalizado = float(rating_raw)
+            except (ValueError, TypeError):
+                rating_normalizado = None
+        
         datos = {
             'nombre': lugar_data.get('nombre'), # Ya fue actualizado arriba si hubo colisión
             'categoria': lugar_data.get('categoria'),
-            'rating_gral': lugar_data.get('rating_gral'),
+            'rating_gral': rating_normalizado,
             'total_reviews_google': lugar_data.get('total_reviews_google', 0),
             'direccion': lugar_data.get('direccion'),
             'latitud': lugar_data.get('latitud'),
