@@ -17,7 +17,8 @@ from db_utils import (
     get_connection,
     close_connection,
     log_review_history,
-    ensure_history_table_exists
+    ensure_history_table_exists,
+    log_scraping_event
 )
 from scraping_utils import (
     crear_driver,
@@ -246,6 +247,22 @@ def run_monitor():
                     con_cambios += 1
                     logger.info(f"   💾 Guardadas: {insertadas} | Duplicadas: {duplicadas}")
                 
+                # INTEGRACIÓN DASHBOARD: Loguear en scraping_logs para visualización histórica
+                estado_dash = "EXITO" 
+                if estado == 'ERROR': estado_dash = "ERROR_TEMPORAL"
+                elif estado == 'SIN_PESTANA': estado_dash = "SIN_OPINIONES"
+                
+                nuevas_count_dash = len(reviews) if reviews else 0
+                
+                log_scraping_event(
+                    url=lugar['url'],
+                    estado=estado_dash,
+                    mensaje=f"Monitor: {estado} (+{nuevas_count_dash})",
+                    reviews_detectadas=count_actual,
+                    nuevas_reviews=nuevas_count_dash,
+                    intentos=1
+                )
+
                 procesados += 1
                 errores_consecutivos = 0
                 
