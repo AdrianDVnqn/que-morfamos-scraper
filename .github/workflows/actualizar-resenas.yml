@@ -1,9 +1,9 @@
-name: Actualización Diaria de Reseñas
+name: Actualización Semanal de Reseñas
 
 on:
   schedule:
-    # Ejecutar todos los días a las 22:00 HS Argentina (01:00 UTC)
-    - cron: '0 1 * * *'
+    # Ejecutar los domingos a las 22:00 HS Argentina (01:00 UTC)
+    - cron: '0 1 * * 0'
   workflow_dispatch:
     inputs:
       full_regeneration:
