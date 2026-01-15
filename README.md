@@ -2,17 +2,19 @@
 
 Este repositorio contiene la infraestructura de Ingeniería de Datos para el sistema de recomendación gastronómica "Qué Morfamos", enfocado en la ciudad de Neuquén, Argentina.
 
-El objetivo es mantener actualizada la base de conocimiento de un asistente conversacional de IA, asegurando que las recomendaciones reflejen las opiniones más recientes de los usuarios de Google Maps.
+El objetivo es mantener actualizada la base de conocimiento del buscador gastronómico [quemorfamos.adriandv.dev](https://quemorfamos.adriandv.dev), asegurando que las recomendaciones reflejen las opiniones más recientes de los usuarios de Google Maps.
 
 ## Contexto del Proyecto
 
-Este desarrollo forma parte de mi portfolio como estudiante de la Maestría en Ciencia de Datos (MCD) de la Universidad Nacional del Comahue. El sistema integra conceptos de:
+Este desarrollo forma parte de mi portfolio personal, construido con el objetivo de profundizar mis habilidades en Ingeniería de Datos y Machine Learning aplicado. El sistema integra conceptos de:
 
 - Web Scraping y ETL automatizado
 - Bases de datos relacionales (PostgreSQL/Supabase)
 - Generación de embeddings semánticos con LLMs
 - Orquestación de pipelines con GitHub Actions
 - Diseño de arquitecturas de datos para RAG (Retrieval-Augmented Generation)
+- Dashboards de monitoreo y visualización de datos (Next.js)
+- APIs RESTful y sistemas conversacionales con IA
 
 ## Arquitectura General
 
@@ -41,8 +43,8 @@ El sistema opera con una arquitectura de tres capas:
 ┌─────────────────────────────────────────────────────────────────┐
 │                    PRODUCTOS DERIVADOS                          │
 │  ┌──────────────────┐    ┌──────────────────────────────────┐  │
-│  │ Dashboard        │    │ API de Recomendaciones (FastAPI) │  │
-│  │ (Next.js)        │    │ + Chatbot Conversacional         │  │
+│  │ Dashboard        │    │ quemorfamos.adriandv.dev         │  │
+│  │ (Next.js)        │    │ (API FastAPI + Frontend React)   │  │
 │  └──────────────────┘    └──────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -62,9 +64,10 @@ El sistema opera con una arquitectura de tres capas:
 - **Optimización:** Solo scrapea reseñas nuevas detectando coincidencias con la última review almacenada.
 
 ### 3. Embedding Regeneration
-- **Frecuencia:** Condicional (cuando hay nuevas reviews)
+- **Frecuencia:** Condicional (solo cuando hay información nueva relevante)
 - **Script:** `regenerate_embeddings.py`
-- **Función:** Genera resúmenes semánticos de cada lugar usando DeepSeek y los vectoriza con OpenAI Embeddings para alimentar el sistema RAG.
+- **Función:** Genera resúmenes semánticos usando DeepSeek y los vectoriza con OpenAI Embeddings.
+- **Optimización:** Antes de regenerar, utiliza un LLM para detectar si las reviews nuevas aportan información diferencial respecto al resumen existente. Si son redundantes, solo actualiza el timestamp sin consumir recursos.
 
 ### 4. Auxiliary Workflows
 - `asignar-barrios.yml`: Asigna barrio y zona geográfica a lugares nuevos usando geometría espacial.
@@ -116,4 +119,4 @@ Este scraper forma parte de un ecosistema más amplio:
 
 ## Disclaimer
 
-Este proyecto fue desarrollado con fines académicos como parte del portfolio de la Maestría en Ciencia de Datos (MCD) de la Universidad Nacional del Comahue. El código se comparte con propósitos educativos; los datos extraídos no se distribuyen públicamente.
+Este proyecto fue desarrollado exclusivamente con fines educativos y de aprendizaje personal. No tiene propósitos comerciales ni se obtiene rédito económico de él. El código se comparte públicamente como parte de mi portfolio profesional; los datos extraídos no se distribuyen ni se comercializan.
