@@ -177,12 +177,27 @@ def upsert_lugar(lugar_data):
         cursor.close()
 
 
+def _obtener_lugar_id_por_nombre(cursor, nombre):
+    """
+    Busca el lugar_id a partir del nombre del restaurante.
+    Retorna None si no lo encuentra.
+    """
+    try:
+        cursor.execute("SELECT id FROM lugares WHERE nombre = %s LIMIT 1", (nombre,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.warning(f"⚠️ Error buscando lugar_id para '{nombre}': {e}")
+        return None
+
+
 def insertar_reviews_batch(reviews_data):
     """
     Inserta un lote de reviews en la base de datos.
-    Esquema: restaurante, review_id, autor, rating_user, texto, fecha_aproximada, fecha_original, fecha_scraping
+    Esquema: restaurante, review_id, autor, rating_user, texto, fecha_aproximada, fecha_original, fecha_scraping, lugar_id
     
     Deduplicación: (restaurante + autor + texto_inicio)
+    Incluye lugar_id para relación formal con tabla lugares.
     """
     if not reviews_data:
         return 0, 0
@@ -193,6 +208,8 @@ def insertar_reviews_batch(reviews_data):
     
     insertadas = 0
     duplicadas = 0
+    # Cache para evitar buscar el mismo lugar_id múltiples veces
+    lugar_id_cache = {}
     
     try:
         cursor = conn.cursor()
@@ -203,6 +220,11 @@ def insertar_reviews_batch(reviews_data):
             texto_norm = ' '.join(texto_raw[:100].lower().split())
             autor_norm = (review.get('autor', '') or '').strip().lower()
             restaurante = review.get('restaurante', '')
+            
+            # Obtener lugar_id (con cache para eficiencia)
+            if restaurante not in lugar_id_cache:
+                lugar_id_cache[restaurante] = _obtener_lugar_id_por_nombre(cursor, restaurante)
+            lugar_id = lugar_id_cache[restaurante]
             
             # Verificar si ya existe (sin usar URL, usando nombre de restaurante)
             cursor.execute("""
@@ -218,16 +240,16 @@ def insertar_reviews_batch(reviews_data):
                 continue
             
             try:
-                # Insertar sin columna 'url' que no existe en el esquema target
+                # Insertar con lugar_id para relación formal
                 cursor.execute("""
                     INSERT INTO reviews (
                         restaurante, autor, rating_user, texto, 
                         fecha_aproximada, fecha_original, 
-                        fecha_scraping, review_id
+                        fecha_scraping, review_id, lugar_id
                     ) VALUES (
                         %(restaurante)s, %(autor)s, %(rating_user)s, %(texto)s,
                         %(fecha_aproximada)s, %(fecha_original)s,
-                        %(fecha_scraping)s, %(review_id)s
+                        %(fecha_scraping)s, %(review_id)s, %(lugar_id)s
                     )
                 """, {
                     'restaurante': restaurante,
@@ -237,7 +259,8 @@ def insertar_reviews_batch(reviews_data):
                     'fecha_aproximada': review.get('fecha_aproximada'),
                     'fecha_original': review.get('fecha_original'),
                     'fecha_scraping': review.get('fecha_scraping', datetime.now().isoformat()),
-                    'review_id': review.get('review_id', '')
+                    'review_id': review.get('review_id', ''),
+                    'lugar_id': lugar_id
                 })
                 
                 if cursor.rowcount > 0:
@@ -392,6 +415,7 @@ def ensure_history_table_exists():
 def log_review_history(url, current_count, current_rating=None, nombre=None, direccion=None):
     """
     Registra un snapshot de metricas (count, rating, nombre, direccion).
+    Incluye lugar_id para relación formal con tabla lugares.
     """
     conn = get_connection()
     if not conn:
@@ -399,6 +423,13 @@ def log_review_history(url, current_count, current_rating=None, nombre=None, dir
         
     try:
         cursor = conn.cursor()
+        
+        # Obtener lugar_id desde la URL
+        lugar_id = None
+        cursor.execute("SELECT id FROM lugares WHERE url = %s LIMIT 1", (url,))
+        row = cursor.fetchone()
+        if row:
+            lugar_id = row[0]
         
         # Obtener último conteo para calcular delta
         prev_count = 0
@@ -413,11 +444,11 @@ def log_review_history(url, current_count, current_rating=None, nombre=None, dir
             
         delta = current_count - prev_count
         
-        # Insertar nuevo registro con nombre y dirección
+        # Insertar nuevo registro con lugar_id
         cursor.execute("""
-            INSERT INTO review_history (lugar_url, review_count, rating, delta_since_last, nombre, direccion)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (url, current_count, current_rating, delta, nombre, direccion))
+            INSERT INTO review_history (lugar_url, review_count, rating, delta_since_last, nombre, direccion, lugar_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (url, current_count, current_rating, delta, nombre, direccion, lugar_id))
         
         conn.commit()
         return delta
@@ -519,16 +550,27 @@ def ensure_log_tables_exists():
             pass
 
 def log_scraping_event(url, estado, mensaje, reviews_detectadas=0, nuevas_reviews=0, intentos=1):
-    """Guarda un evento de scraping en la base de datos."""
+    """
+    Guarda un evento de scraping en la base de datos.
+    Incluye lugar_id para relación formal con tabla lugares.
+    """
     conn = get_connection()
     if not conn:
         return False
     try:
         cursor = conn.cursor()
+        
+        # Obtener lugar_id desde la URL
+        lugar_id = None
+        cursor.execute("SELECT id FROM lugares WHERE url = %s LIMIT 1", (url,))
+        row = cursor.fetchone()
+        if row:
+            lugar_id = row[0]
+        
         cursor.execute("""
-            INSERT INTO scraping_logs (url, estado, mensaje, reviews_detectadas, nuevas_reviews, intentos)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (url, estado, mensaje, reviews_detectadas, nuevas_reviews, intentos))
+            INSERT INTO scraping_logs (url, estado, mensaje, reviews_detectadas, nuevas_reviews, intentos, lugar_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (url, estado, mensaje, reviews_detectadas, nuevas_reviews, intentos, lugar_id))
         conn.commit()
         return True
     except Exception as e:
