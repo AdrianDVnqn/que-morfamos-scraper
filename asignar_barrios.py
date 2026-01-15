@@ -100,8 +100,12 @@ def process_supabase(gdf_barrios):
         sys.exit(1)
         
     try:
-        # Cargar Lugares
-        query = "SELECT nombre, latitud, longitud FROM lugares WHERE latitud IS NOT NULL AND longitud IS NOT NULL"
+        # Cargar Lugares CON sus valores actuales de barrio/zona
+        query = """
+            SELECT nombre, latitud, longitud, barrio as barrio_actual, zona as zona_actual 
+            FROM lugares 
+            WHERE latitud IS NOT NULL AND longitud IS NOT NULL
+        """
         df_lugares = pd.read_sql(query, conn)
         print(f"   📊 Lugares cargados: {len(df_lugares)}")
         
@@ -121,33 +125,61 @@ def process_supabase(gdf_barrios):
         resultado = gpd.sjoin(gdf_lugares, gdf_barrios, how="left", predicate="within")
         
         # Asignar Zonas
-        resultado['zona'] = resultado['barrio_oficial'].map(ZONAS_MAP).fillna('Otras Zonas')
+        resultado['zona_nueva'] = resultado['barrio_oficial'].map(ZONAS_MAP).fillna('Otras Zonas')
         
-        # Lógica extra: Cerca del Río (Promoted global constant)
+        # Lógica extra: Cerca del Río
         resultado['cerca_rio'] = resultado['barrio_oficial'].isin(BARRIOS_RIO)
         
-        # Update en Batch
+        # Update en Batch - Solo si hay cambios reales
         print("💾 Actualizando base de datos...")
         cursor = conn.cursor()
         
         updates = 0
+        cambios = []
+        
         for idx, row in resultado.iterrows():
             nombre = row['nombre']
-            barrio = row['barrio_oficial'] if pd.notna(row['barrio_oficial']) else None
-            zona = row['zona']
+            barrio_nuevo = row['barrio_oficial'] if pd.notna(row['barrio_oficial']) else None
+            zona_nueva = row['zona_nueva']
             cerca_rio = bool(row['cerca_rio'])
             
-            sql = """
-                UPDATE lugares 
-                SET barrio = %s, zona = %s, cerca_rio = %s 
-                WHERE nombre = %s
-            """
-            cursor.execute(sql, (barrio, zona, cerca_rio, nombre))
-            updates += 1
+            barrio_actual = row.get('barrio_actual')
+            zona_actual = row.get('zona_actual')
+            
+            # Solo actualizar si hay cambios reales
+            if barrio_nuevo != barrio_actual or zona_nueva != zona_actual:
+                sql = """
+                    UPDATE lugares 
+                    SET barrio = %s, zona = %s, cerca_rio = %s 
+                    WHERE nombre = %s
+                """
+                cursor.execute(sql, (barrio_nuevo, zona_nueva, cerca_rio, nombre))
+                updates += 1
+                
+                # Registrar el cambio
+                cambios.append({
+                    'nombre': nombre,
+                    'barrio_antes': barrio_actual or '(vacío)',
+                    'barrio_despues': barrio_nuevo or '(vacío)',
+                    'zona_antes': zona_actual or '(vacío)',
+                    'zona_despues': zona_nueva
+                })
             
         conn.commit()
         cursor.close()
-        print(f"   ✅ {updates} lugares actualizados en Supabase.")
+        
+        # Mostrar resumen de cambios
+        if cambios:
+            print(f"\n📝 **CAMBIOS REALIZADOS ({len(cambios)}):**")
+            for c in cambios[:20]:  # Mostrar máximo 20
+                print(f"   • {c['nombre']}")
+                print(f"     Zona: {c['zona_antes']} → {c['zona_despues']}")
+                if c['barrio_antes'] != c['barrio_despues']:
+                    print(f"     Barrio: {c['barrio_antes']} → {c['barrio_despues']}")
+            if len(cambios) > 20:
+                print(f"   ... y {len(cambios) - 20} más")
+        
+        print(f"\n   ✅ {updates} lugares actualizados en Supabase.")
         
     except Exception as e:
         print(f"❌ Error procesando Supabase: {e}")
