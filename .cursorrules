@@ -1,0 +1,12 @@
+# Agent Behavior & Rules (Scraper Repo)
+
+## Documentation
+- **ALWAYS** update `DEV_LOG.md` at the end of a session if you made significant changes.
+  
+## Terminal & Shell (PowerShell)
+- **DO NOT use `&&`** chaining in Windows PowerShell commands. Use `;` instead.
+- **DO NOT** assume `ls` works like Linux/Mac `ls` (it is an alias for `Get-ChildItem`).
+  
+## Code Quality
+- Logging: Always use `logger.info()` or `logger.error()`, never `print()` for production scripts.
+- Use Spanish for comments.

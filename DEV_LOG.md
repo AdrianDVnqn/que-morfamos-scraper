@@ -12,3 +12,10 @@ Registro de cambios técnicos, fixes y decisiones de diseño en el scraper de re
 
 ---
 *Bitácora iniciada automáticamente por Antigravity Agent.*
+
+## 📅 Sesión: 16 de Enero de 2026
+
+### 🛠️ Fixes y Mejoras
+- **Corrección de Tipos SQL en Logs:** Se solucionó el error `operator does not exist: text > timestamp` en `db_utils.py`.
+    - **Causa:** La columna `fecha_scraping` en la tabla `reviews` es de tipo TEXT (ISO string), pero se comparaba directamente contra un objeto datetime en las consultas de "Info nueva" y estadísticas.
+    - **Solución:** Se agregó un cast explícito `::timestamp` en las cláusulas WHERE afectadas (`get_reviews_nuevas_sin_embedding` y `obtener_estadisticas`).

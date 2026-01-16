@@ -360,7 +360,7 @@ def obtener_estadisticas():
         
         cursor.execute("""
             SELECT COUNT(*) FROM reviews 
-            WHERE fecha_scraping > NOW() - INTERVAL '24 hours'
+            WHERE fecha_scraping::timestamp > NOW() - INTERVAL '24 hours'
         """)
         reviews_24h = cursor.fetchone()[0]
         
@@ -792,7 +792,7 @@ def get_reviews_nuevas_sin_embedding(lugar_nombre, desde_fecha):
         if desde_fecha:
             cursor.execute("""
                 SELECT texto FROM reviews 
-                WHERE restaurante = %s AND fecha_scraping > %s
+                WHERE restaurante = %s AND fecha_scraping::timestamp > %s
                 ORDER BY fecha_scraping DESC
             """, (lugar_nombre, desde_fecha))
         else:
