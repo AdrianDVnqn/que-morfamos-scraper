@@ -269,7 +269,18 @@ def run_monitor():
             except Exception as e:
                 errores += 1
                 errores_consecutivos += 1
-                logger.error(f"   ❌ Error procesando: {str(e)[:80]}")
+                error_msg = str(e)[:200]
+                logger.error(f"   ❌ Error procesando: {error_msg}")
+                
+                # Loguear ERROR en DB también
+                log_scraping_event(
+                    url=lugar['url'],
+                    estado="ERROR",
+                    mensaje=f"Monitor Error: {error_msg}",
+                    reviews_detectadas=0,
+                    nuevas_reviews=0,
+                    intentos=1
+                )
                 
                 # Si hay muchos errores seguidos, reiniciar driver
                 if errores_consecutivos >= 3:
