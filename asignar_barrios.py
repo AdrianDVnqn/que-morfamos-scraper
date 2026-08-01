@@ -1,11 +1,13 @@
 import pandas as pd
 import geopandas as gpd
 import sys
+from pathlib import Path
 
 # ==========================================
 # CONFIGURACIÓN
 # ==========================================
 ARCHIVO_REVIEWS = 'reviews_neuquen.csv'
+ARCHIVO_BARRIOS = Path(__file__).with_name('shapeBarrios.json')
 
 # Mapeo de Zonas (Definido globalmente para ser importable)
 ZONAS_MAP = {
@@ -72,12 +74,16 @@ ZONAS_MAP = {
 BARRIOS_RIO = ['RÍO GRANDE', 'LIMAY', 'CONFLUENCIA RURAL', 'RINCÓN DE EMILIO', 'VALENTINA SUR RURAL']
 
 def load_barrios():
-    print("🌐 Descargando mapa de barrios de Neuquén...")
+    print("📄 Leyendo mapa de barrios de Neuquén desde archivo local...")
+    if not ARCHIVO_BARRIOS.exists():
+        print(f"   ❌ No existe el archivo: {ARCHIVO_BARRIOS}")
+        sys.exit(1)
+
     try:
-        gdf_barrios = gpd.read_file('https://www.estadisticaneuquen.gob.ar/apps/barrios/shapeBarrios.json') 
-        print("   ✅ Mapa descargado") 
+        gdf_barrios = gpd.read_file(ARCHIVO_BARRIOS)
+        print("   ✅ Mapa cargado")
     except Exception as e:
-        print(f"   ❌ Error descargando mapa: {e}")
+        print(f"   ❌ Error leyendo mapa: {e}")
         sys.exit(1)
 
     # ¡IMPORTANTE! Definimos que el archivo viene en "Web Mercator" (Metros)
