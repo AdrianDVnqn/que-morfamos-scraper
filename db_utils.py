@@ -3,10 +3,37 @@ Módulo de utilidades para conexión a Supabase/PostgreSQL.
 Proporciona funciones para insertar reviews y gestionar estado de procesamiento.
 """
 import os
+import math
 import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# Centro de Neuquén Capital, usado para descartar altas cuyas coordenadas caen muy lejos
+# (ej. "Parrilla La Gran Familia" coló un resultado de Buenos Aires porque su dirección real
+# contenía la palabra "Neuquén" como nombre de calle — ver DEV_LOG sesión 25-ago-2026).
+# Definido acá (sin importar geo_utils/geopandas) para no sumarle esa dependencia pesada a
+# db_utils, que también lo usa monitor_reviews.py en un workflow que no instala geopandas.
+NEUQUEN_CAPITAL_LAT = -38.9516
+NEUQUEN_CAPITAL_LON = -68.0591
+RADIO_COBERTURA_KM = 30  # Cubre Neuquén Capital + aledaños (Plottier, Cipolletti, Centenario; máx real ~15km)
+
+
+def distancia_km(lat1, lon1, lat2, lon2):
+    """Distancia en km entre dos coordenadas (fórmula de Haversine)."""
+    R = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def esta_en_zona_cobertura(lat, lon):
+    """True si (lat, lon) está dentro del radio de cobertura del bot (Neuquén Capital + aledaños)."""
+    if lat is None or lon is None:
+        return True  # Sin coordenadas no podemos descartar acá
+    return distancia_km(lat, lon, NEUQUEN_CAPITAL_LAT, NEUQUEN_CAPITAL_LON) <= RADIO_COBERTURA_KM
 
 # Variable global para la conexión
 _connection = None
@@ -88,7 +115,20 @@ def upsert_lugar(lugar_data):
         raw_nombre = lugar_data.get('nombre') or lugar_data.get('restaurante', 'Desconocido')
         url = lugar_data.get('url')
         direccion = lugar_data.get('direccion')
-        
+
+        # --- Filtro de zona de cobertura ---
+        # Descarta altas cuyas coordenadas caen muy lejos de Neuquén Capital (ej. resultados
+        # sueltos de Google Maps de otra ciudad que matchearon por texto).
+        lat_check = lugar_data.get('latitud')
+        lon_check = lugar_data.get('longitud')
+        if not esta_en_zona_cobertura(lat_check, lon_check):
+            distancia = distancia_km(lat_check, lon_check, NEUQUEN_CAPITAL_LAT, NEUQUEN_CAPITAL_LON)
+            logger.warning(
+                f"🚫 Descartado por estar fuera de la zona de cobertura ({distancia:.0f}km de Neuquén Capital): "
+                f"'{raw_nombre}' — {direccion}"
+            )
+            return False
+
         # --- Lógica de Desambiguación de Nombres ---
         if direccion: # Solo podemos desambiguar si hay dirección
             # Buscar otros lugares con el mismo nombre y distinta URL
