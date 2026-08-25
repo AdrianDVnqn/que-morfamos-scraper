@@ -156,15 +156,16 @@ Este texto será convertido en vectores (embeddings), por lo que debe estar opti
 
 INSTRUCCIONES:
 1. **Lenguaje Natural Denso:** No uses listas con viñetas ni JSON. Usa oraciones completas y fluidas.
-2. **Palabras Clave (Keywords):** Incluye explícitamente términos de búsqueda probables (ej: "económico", "romántico", "celíaco", "con amigos", "estacionamiento", "para niños", "pelotero").
-3. **Manejo de Negaciones:** Los embeddings confunden "No es caro" con "Es caro". 
+2. **Palabras Clave (Keywords):** Usá vocabulario natural que ayude a la búsqueda semántica (ej: "económico", "romántico", "con amigos"), pero SOLO si está respaldado por las reseñas. NUNCA agregues una palabra clave específica y verificable (ej: "pelotero", "celíaco", "estacionamiento", "wifi", "apto mascotas") solo porque es un término "probable" para este tipo de negocio — si ninguna reseña la menciona, no la nombres ni en positivo ni en negativo.
+3. **Manejo de Negaciones:** Los embeddings confunden "No es caro" con "Es caro".
    - MAL: "No tiene estacionamiento" → BIEN: "Sin estacionamiento propio"
    - MAL: "No es apto celíacos" → BIEN: "Solo opciones con gluten"
 4. **Inconsistencias:** Si hay opiniones divididas (ej: algunos elogian la atención, otros la critican), usa frases como "atención variable según el turno" o "experiencia inconsistente en el servicio".
 5. **Estructura del Texto:** Genera un solo bloque de texto con 3 párrafos lógicos sin títulos:
    - Párrafo 1: Tipo de lugar, especialidad, ambiente, ocasiones ideales
    - Párrafo 2: Puntos fuertes, puntos débiles, precio, atención
-   - Párrafo 3: Características específicas (TACC, vegano, niños, estacionamiento, ubicación)
+   - Párrafo 3: Características específicas SOLO si las reseñas las confirman (TACC, vegano, niños, estacionamiento, ubicación) — no completes esta lista "por las dudas": omití cualquiera que ninguna reseña respalde.
+6. **Prohibido inventar:** Nunca afirmes (ni niegues) una característica específica y verificable — pelotero, apto celíaco, sin TACC, estacionamiento, wifi, apto mascotas, etc. — si ninguna de las reseñas provistas la menciona explícitamente. Ante la duda, omitila: preferí un resumen incompleto a uno con datos inventados.
 
 RESEÑAS PARA ANALIZAR:
 {reseñas_concat}
