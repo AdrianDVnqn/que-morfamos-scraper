@@ -17,12 +17,17 @@ Uso:
     SUMMARY_PROVIDER=openai python regenerar_resumenes.py --dry-run   # estima costo, no llama a la API
                                                                       # (sí crea las columnas shadow,
                                                                       #  que son aditivas y nullables)
-    SUMMARY_PROVIDER=openai python regenerar_resumenes.py             # regenera resúmenes
+    SUMMARY_PROVIDER=openai python regenerar_resumenes.py --golden    # SÓLO los ~48 del golden
+                                                                      #  dataset (~$0.02): usar ESTO
+                                                                      #  para iterar el prompt
+    SUMMARY_PROVIDER=openai python regenerar_resumenes.py --todo      # los 791 (~$0.33, ~13 min):
+                                                                      #  sólo para el benchmark final
     SUMMARY_PROVIDER=openai python regenerar_resumenes.py --limit 50  # sólo N lugares
     python regenerar_resumenes.py --embeddings                        # genera embeddings del v2
 """
 import os
 import sys
+import json
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -56,13 +61,30 @@ def asegurar_columnas(engine):
     print("✅ Columnas shadow verificadas (resumen_reviews_v2, resumen_prompt_version, resumen_generado_at)")
 
 
-def lugares_pendientes(engine, limit=None):
+def nombres_del_golden_dataset():
+    """Lugares que el golden dataset usa como ground truth (~48)."""
+    ruta = os.getenv("GOLDEN_DATASET_PATH", r"D:\que-morfamos-backend\golden_dataset.json")
+    with open(ruta, encoding="utf-8") as f:
+        casos = json.load(f)
+    nombres = set()
+    for c in casos:
+        nombres.update(c.get("expected_restaurants", []))
+    return sorted(n for n in nombres if not n.startswith("<TODO"))
+
+
+def lugares_pendientes(engine, limit=None, solo_golden=False):
     """Lugares con reseñas suficientes que todavía no tienen la versión objetivo."""
     sql = """
         SELECT l.id, l.nombre, count(r.*) AS n_reviews
         FROM lugares l
         JOIN reviews r ON r.lugar_id = l.id AND length(r.texto) > 30
         WHERE l.resumen_prompt_version IS DISTINCT FROM :v
+    """
+    params = {"v": PROMPT_VERSION}
+    if solo_golden:
+        sql += " AND l.nombre = ANY(:golden)"
+        params["golden"] = nombres_del_golden_dataset()
+    sql += """
         GROUP BY l.id, l.nombre
         HAVING count(r.*) >= 5
         ORDER BY count(r.*) DESC
@@ -70,7 +92,7 @@ def lugares_pendientes(engine, limit=None):
     if limit:
         sql += f" LIMIT {int(limit)}"
     with engine.connect() as conn:
-        return conn.execute(text(sql), {"v": PROMPT_VERSION}).fetchall()
+        return conn.execute(text(sql), params).fetchall()
 
 
 def procesar_lugar(engine, lugar_id, nombre):
@@ -106,8 +128,8 @@ def procesar_lugar(engine, lugar_id, nombre):
     return nombre, True, None
 
 
-def regenerar(engine, limit=None):
-    pendientes = lugares_pendientes(engine, limit)
+def regenerar(engine, limit=None, solo_golden=False):
+    pendientes = lugares_pendientes(engine, limit, solo_golden)
     total = len(pendientes)
     if not total:
         print(f"✅ Nada pendiente: todos los lugares ya tienen la versión {PROMPT_VERSION}")
@@ -246,7 +268,25 @@ def main():
     limit = None
     if "--limit" in sys.argv:
         limit = int(sys.argv[sys.argv.index("--limit") + 1])
-    regenerar(engine, limit)
+    solo_golden = "--golden" in sys.argv
+
+    # Guardrail de costo. Iterar el prompt NO requiere regenerar los 791 lugares: la señal para
+    # decidir si un prompt mejoró ("¿las features del ground truth siguen siendo detectables?") se
+    # obtiene con los ~48 del golden dataset, a ~2 centavos por iteración en vez de ~$0.33.
+    # La corrida completa sólo hace falta para el BENCHMARK, porque ahí el vector search compite
+    # contra el corpus entero. En la sesión del 26-ago-2026 se gastaron $1.32 en cuatro corridas
+    # completas cuando alcanzaba con tres iteraciones en modo --golden y UNA completa al final.
+    if not (solo_golden or limit or "--todo" in sys.argv):
+        pendientes = lugares_pendientes(engine)
+        costo = len(pendientes) * 0.00042  # medido: ~$0.33 / 791 lugares
+        print(f"⚠️  Vas a regenerar los {len(pendientes)} lugares (~${costo:.2f}, ~13 min).")
+        print("   Si estás ITERANDO el prompt, no hace falta: usá `--golden` (~48 lugares, ~$0.02)")
+        print("   y mirá cuántas features del ground truth siguen siendo detectables.")
+        print("   La corrida completa sólo hace falta para correr el benchmark de punta a punta.")
+        print("\n   Para confirmar la corrida completa: agregá --todo")
+        return
+
+    regenerar(engine, limit, solo_golden)
 
 
 if __name__ == "__main__":
