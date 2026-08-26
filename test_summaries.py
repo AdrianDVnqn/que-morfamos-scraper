@@ -12,7 +12,7 @@ if os.path.exists("mis_claves.env"):
     load_dotenv("mis_claves.env")
 
 from db_utils import get_connection, get_todas_reviews_lugar, migrate_embedding_columns
-from deepseek_utils import generar_resumen_reviews
+from llm_utils import generar_resumen_reviews
 
 # Lugares fijos para comparar metodologías
 LUGARES_FIJOS = [

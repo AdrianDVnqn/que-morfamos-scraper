@@ -23,3 +23,5 @@ venv/
 .idea/
 
 mis_claves.env
+# Salida generada por regenerar_muestra.py (regenerable, no es fuente)
+comparacion_resumenes.md

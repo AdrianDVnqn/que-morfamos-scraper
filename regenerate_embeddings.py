@@ -36,7 +36,7 @@ from db_utils import (
     get_lugares_para_embedding, get_reviews_nuevas_sin_embedding,
     get_todas_reviews_lugar, actualizar_resumen_lugar
 )
-from deepseek_utils import generar_resumen_reviews, detectar_info_nueva, limpiar_texto
+from llm_utils import generar_resumen_reviews, detectar_info_nueva, limpiar_texto
 
 
 def get_sqlalchemy_url(url):
