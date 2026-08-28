@@ -22,6 +22,7 @@ from db_utils import (
 )
 from scraping_utils import (
     crear_driver,
+    ficha_del_lugar_resolvio,
     forzar_entrada_pestana_opiniones,
     ordenar_por_recientes,
     detectar_total_reviews,
@@ -110,6 +111,12 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
         if count_actual == 0:
             logger.warning("   ⚠️ No se pudo obtener conteo, intentando scrapear igual...")
         
+        # ¿La ficha existe? Si Google nos mando al mapa generico el problema no es la pestaña:
+        # la URL guardada murio. Sin esta distincion los dos casos se archivaban igual.
+        if not ficha_del_lugar_resolvio(driver):
+            logger.warning("   💀 Google no resuelve la ficha: la URL guardada esta muerta")
+            return [], 'URL_MUERTA'
+
         # Navegar a pestaña Opiniones
         if not forzar_entrada_pestana_opiniones(driver):
             driver.refresh()
@@ -202,6 +209,9 @@ def run_monitor():
     con_cambios = 0
     total_nuevas_reviews = 0
     errores = 0
+    # Una ficha muerta no es un "error": procesar_lugar vuelve por el camino normal, asi que no
+    # entraba en ningun contador y el resumen no la mencionaba. Ese era el "en silencio".
+    fichas_muertas = []
     errores_consecutivos = 0
     timed_out = False
     
@@ -251,6 +261,11 @@ def run_monitor():
                 estado_dash = "EXITO" 
                 if estado == 'ERROR': estado_dash = "ERROR_TEMPORAL"
                 elif estado == 'SIN_PESTANA': estado_dash = "SIN_OPINIONES"
+                # URL_MUERTA viaja con su propio nombre: mezclarlo con SIN_OPINIONES es lo que
+                # tenia 10 fichas muertas escondidas entre los "sin reseñas" desde hace 7 semanas.
+                elif estado == 'URL_MUERTA':
+                    estado_dash = "URL_MUERTA"
+                    fichas_muertas.append(lugar['nombre'])
                 
                 nuevas_count_dash = len(reviews) if reviews else 0
                 
@@ -324,6 +339,14 @@ def run_monitor():
         logger.info(f"Lugares con cambios: {con_cambios}")
         logger.info(f"Reseñas nuevas: {total_nuevas_reviews}")
         logger.info(f"Errores: {errores}")
+        # La linea va SIEMPRE, aunque sea 0: el notificador la levanta por regex desde run.log y
+        # la manda a Discord, que es lo que hace que deje de pasar desapercibido.
+        logger.info(f"Fichas muertas: {len(fichas_muertas)}")
+        if fichas_muertas:
+            logger.warning("💀 Google ya no resuelve la ficha de estos lugares (¿cerraron, o los")
+            logger.warning("   fusionó/reemplazó?). Hay que revalidar la URL o darlos de baja:")
+            for nombre in fichas_muertas:
+                logger.warning(f"     - {nombre}")
         logger.info(f"Crecimiento total: +{total_nuevas_reviews}")
         logger.info("=" * 60)
         

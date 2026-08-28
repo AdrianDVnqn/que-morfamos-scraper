@@ -53,6 +53,38 @@ def crear_driver(headless=True, window_height=4000):
 # FUNCIONES DE NAVEGACIÓN
 # ==========================================
 
+def ficha_del_lugar_resolvio(driver):
+    """¿Google resolvió la ficha del lugar, o nos mandó al mapa genérico?
+
+    Cuando el place ID de una URL guardada deja de existir (el negocio cerró, o Google fusionó o
+    reemplazó la ficha), Maps NO devuelve un 404: redirige a la portada del mapa. La URL queda
+    como ".../maps/place//@-38.95,-68.06,11z/..." — con el nombre VACIO entre las dos barras — y
+    la página no tiene h1 ni pestañas.
+
+    Sin este chequeo esos casos caen en forzar_entrada_pestana_opiniones(), fallan, y se archivan
+    como "no se encontró la pestaña de opiniones": una ficha muerta queda registrada como si el
+    lugar no tuviera reseñas, y nadie se entera. Verificado sobre los 11 lugares que venían
+    fallando: 10 tenían exactamente 7 fallos (uno por semana, 7 semanas seguidas) y su URL estaba
+    muerta; el restante tenía 1 fallo y la URL sana. Abriendo esas URLs a mano, las 10 caen en el
+    mapa genérico y un lugar de control (Ohana) resuelve bien.
+    """
+    try:
+        if "/maps/place//" in (driver.current_url or ""):
+            return False
+    except Exception:
+        pass
+    try:
+        if driver.find_element(By.TAG_NAME, "h1").text.strip():
+            return True
+    except Exception:
+        pass
+    # Sin h1 la ficha no cargó. Las pestañas son la segunda señal, por si el h1 tarda.
+    try:
+        return len(driver.find_elements(By.CSS_SELECTOR, "button[role='tab']")) > 0
+    except Exception:
+        return False
+
+
 def forzar_entrada_pestana_opiniones(driver):
     """Intenta entrar a la pestaña de Opiniones/Reseñas"""
     xpaths = [
