@@ -41,7 +41,7 @@ from llm_utils import generar_resumen_reviews
 
 # Cambiar cuando se toque el prompt: los lugares con otra versión se regeneran, los que ya tienen
 # ésta se saltean. Es lo que hace el script resumible y permite rollouts parciales.
-PROMPT_VERSION = "v4-balanceado-temp0-2026-08-26"
+PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v5-recall-features-2026-09-01")
 COLLECTION_V2 = os.getenv("COLLECTION_NAME_V2", "reviews_embeddings_v2")
 CONCURRENCIA = int(os.getenv("REGEN_CONCURRENCIA", "6"))
 
@@ -70,6 +70,48 @@ def nombres_del_golden_dataset():
     for c in casos:
         nombres.update(c.get("expected_restaurants", []))
     return sorted(n for n in nombres if not n.startswith("<TODO"))
+
+
+# Features a revisar y los términos con que aparecen. Se usa para armar la muestra dirigida:
+# no sirve medir un prompt de recall sobre lugares que no tienen nada que recuperar.
+FEATURES_A_MEDIR = {
+    "pet friendly": ["pet friendly", "pet-friendly", "mascota", "perro"],
+    "wifi": ["wifi", "wi-fi"],
+    "terraza": ["terraza", "patio", "al aire libre"],
+    "sin tacc": ["sin tacc", "sin gluten", "celiac"],
+    "vegano": ["vegano", "vegana", "veggie"],
+    "musica en vivo": ["musica en vivo", "shows en vivo", "banda en vivo"],
+    "pelotero": ["pelotero", "juegos para chicos", "juegos infantiles"],
+}
+
+
+def lugares_con_feature_perdida(engine, limit=40):
+    """Lugares donde las reseñas confirman una feature y el resumen NO la menciona.
+
+    Es la muestra dirigida para iterar un prompt de recall: medir sobre el golden dataset o sobre
+    una muestra al azar diluye la señal con lugares que no tienen nada que recuperar. Acá cada
+    lugar es un fallo conocido, así que la mejora se lee directo.
+
+    Medido el 01-sep-2026, el resumen sólo captura entre el 43% y el 77% de las features que las
+    reseñas confirman — y el resumen es la única evidencia que lee el ranking del backend.
+    """
+    condiciones = []
+    for terminos in FEATURES_A_MEDIR.values():
+        rev = " OR ".join([f"r.texto ILIKE '%{t}%'" for t in terminos])
+        res = " OR ".join([f"l.resumen_reviews ILIKE '%{t}%'" for t in terminos])
+        condiciones.append(f"(SUM(CASE WHEN {rev} THEN 1 ELSE 0 END) >= 2 AND NOT ({res}))")
+    having = " OR ".join(condiciones)
+    sql = f"""
+        SELECT l.id, l.nombre, count(r.*) AS n_reviews
+        FROM lugares l
+        JOIN reviews r ON r.lugar_id = l.id AND length(r.texto) > 30
+        GROUP BY l.id, l.nombre, l.resumen_reviews
+        HAVING count(r.*) >= 5 AND ({having})
+        ORDER BY count(r.*) DESC
+        LIMIT {int(limit)}
+    """
+    with engine.connect() as conn:
+        return conn.execute(text(sql)).fetchall()
 
 
 def lugares_pendientes(engine, limit=None, solo_golden=False):
@@ -128,8 +170,10 @@ def procesar_lugar(engine, lugar_id, nombre):
     return nombre, True, None
 
 
-def regenerar(engine, limit=None, solo_golden=False):
-    pendientes = lugares_pendientes(engine, limit, solo_golden)
+def regenerar(engine, limit=None, solo_golden=False, objetivo=None):
+    # `objetivo` permite pasar una lista ya elegida (ej. la muestra dirigida de --faltantes) en
+    # vez de dejar que la seleccione la consulta de pendientes.
+    pendientes = objetivo if objetivo is not None else lugares_pendientes(engine, limit, solo_golden)
     total = len(pendientes)
     if not total:
         print(f"✅ Nada pendiente: todos los lugares ya tienen la versión {PROMPT_VERSION}")
@@ -269,6 +313,14 @@ def main():
     if "--limit" in sys.argv:
         limit = int(sys.argv[sys.argv.index("--limit") + 1])
     solo_golden = "--golden" in sys.argv
+
+    # Muestra dirigida a los fallos conocidos de recall de features (ver la función).
+    if "--faltantes" in sys.argv:
+        objetivo = lugares_con_feature_perdida(engine, limit or 40)
+        print(f"🎯 Muestra dirigida: {len(objetivo)} lugares con features en las reseñas que el "
+              f"resumen actual NO menciona.")
+        regenerar(engine, None, False, objetivo=objetivo)
+        return
 
     # Guardrail de costo. Iterar el prompt NO requiere regenerar los 791 lugares: la señal para
     # decidir si un prompt mejoró ("¿las features del ground truth siguen siendo detectables?") se

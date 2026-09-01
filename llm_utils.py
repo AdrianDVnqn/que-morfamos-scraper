@@ -199,6 +199,34 @@ def muestreo_estrategico(reviews, total=50):
     return items_seleccionados
 
 
+# El prompt está versionado porque `regenerate_embeddings.py` escribe en la columna de
+# PRODUCCIÓN (`resumen_reviews`) en la corrida semanal: sin esto, iterar el prompt acá cambiaría
+# en silencio lo que genera el cron. La variante se elige por env var y el default es la que hoy
+# corre en producción, así que probar v5 no toca nada hasta que se promueva a mano.
+VARIANTE_PROMPT = os.getenv("RESUMEN_PROMPT_VARIANT", "v4")
+
+# v5 ataca un problema MEDIDO (01-sep-2026): el resumen se come entre un tercio y la mitad de las
+# características que las reseñas sí confirman, y el resumen es la única evidencia que lee el
+# ranking del backend. Cobertura del resumen sobre lugares con >=2 reseñas que mencionan la
+# feature: pet friendly 54%, wifi 43%, música en vivo 44%, terraza 63%, sin TACC 63%, vegano 77%.
+#
+# La causa es que v4 sólo tiene un FILTRO ("mencionala nada más si las reseñas la confirman") y
+# ninguna instrucción de RECALL: nunca le pide al modelo que las busque activamente, así que
+# menciona las que le llamaron la atención. v5 agrega la lista a repasar, conservando intacto el
+# filtro de confirmación — que es lo que evita que repasar la lista se convierta en inventarla.
+EXTRA_V5 = """
+     REPASO OBLIGATORIO antes de cerrar el párrafo 3: recorré esta lista y, POR CADA ÍTEM,
+     preguntate si alguna reseña lo confirma. Si lo confirma, NOMBRALO; si ninguna lo menciona,
+     omitilo en silencio (no escribas que falta, no lo aclares):
+       opciones sin TACC / celíaco · opciones veganas o vegetarianas · sin lactosa ·
+       juegos para chicos o pelotero · apto mascotas · estacionamiento · wifi ·
+       mesas afuera, patio o terraza · música en vivo · delivery o takeaway ·
+       accesibilidad para sillas de ruedas · apto para grupos grandes · desayuno o merienda
+     No es una lista para completar: es una lista para REVISAR. Un ítem sin respaldo en las
+     reseñas no va, y nombrar de más es peor que omitir.
+     Preferí la palabra que usan las reseñas antes que un sinónimo tuyo."""
+
+
 def generar_resumen_reviews(reviews_data, nombre_lugar=""):
     """
     Genera un resumen estructurado usando muestreo estratégico.
@@ -232,6 +260,8 @@ def generar_resumen_reviews(reviews_data, nombre_lugar=""):
         
     reseñas_concat = "\n---\n".join(formatted_reviews)
     
+    extra_v5 = EXTRA_V5 if VARIANTE_PROMPT == "v5" else ""
+
     prompt = f"""Actúa como un experto en SEO gastronómico y Data Science. 
 Tu objetivo es generar un "Perfil Semántico Rico" para el restaurante "{nombre_lugar}" basado en sus reseñas.
 Este texto será convertido en vectores (embeddings), por lo que debe estar optimizado para búsqueda semántica.
@@ -246,7 +276,7 @@ INSTRUCCIONES:
 5. **Estructura del Texto:** Genera un solo bloque de texto con 3 párrafos lógicos sin títulos:
    - Párrafo 1: Tipo de lugar, especialidad, ambiente, ocasiones ideales
    - Párrafo 2: Puntos fuertes, puntos débiles, precio, atención
-   - Párrafo 3: Características específicas SOLO si las reseñas las confirman (TACC, vegano, niños, estacionamiento, ubicación) — no completes esta lista "por las dudas": omití cualquiera que ninguna reseña respalde.
+   - Párrafo 3: Características específicas SOLO si las reseñas las confirman (TACC, vegano, niños, estacionamiento, ubicación) — no completes esta lista "por las dudas": omití cualquiera que ninguna reseña respalde.{extra_v5}
 6. **Ni inventar ni negar — reportá lo que dicen las reseñas:**
    - Si NINGUNA reseña menciona una característica verificable (pelotero, apto celíaco, sin TACC,
      estacionamiento, wifi, apto mascotas), NO la afirmes ni la niegues: omitila por completo.
