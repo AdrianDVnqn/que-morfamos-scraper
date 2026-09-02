@@ -79,21 +79,32 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
             except:
                 pass
         
-        # Se espera EXACTAMENTE lo que `detectar_total_reviews` necesita: que div.F7nice ya tenga
-        # el "(N)" del conteo. Antes acá había un `time.sleep(2)` fijo, y era peor en las dos
-        # direcciones: corría para los 929 lugares aunque la página ya estuviera lista —2s x 929 =
-        # 31 minutos por corrida de espera pura— y cuando Google tardaba más de 2s el conteo se
-        # leía a medio cargar. Esperar la condición devuelve apenas está lista y aguanta más
-        # cuando de verdad hace falta.
+        # Acá había un `time.sleep(2)` fijo porque la página a veces tarda en cargar. El problema
+        # de un tiempo fijo es que está mal en las DOS direcciones: corría igual para los 929
+        # lugares aunque la página ya estuviera lista (2s x 929 = 31 minutos por corrida de espera
+        # pura), y cuando Google tardaba MÁS de 2s el dato se leía a medio cargar igual.
+        #
+        # Se espera la condición real, que son los dos elementos que se leen justo abajo y viven
+        # en lugares distintos del DOM:
+        #   - div.F7nice con el "(N)"  -> lo lee `detectar_total_reviews`
+        #   - fontDisplayLarge         -> lo lee `extraer_rating_page`
+        # Esperar sólo el primero dejaba al rating sin garantía.
+        #
+        # Si no se confirma en 8s, la página está genuinamente lenta o rota: ahí se cae al mismo
+        # margen de 2s que había antes. O sea que en el caso lento nunca se espera MENOS que
+        # antes — se espera hasta 4 veces más — y en el caso normal no se regala tiempo.
+        def _cabecera_lista(d):
+            try:
+                if not re.search(r"\([\d.,]+\)", d.find_element(By.CSS_SELECTOR, "div.F7nice").text or ""):
+                    return False
+                return bool((d.find_element(By.CLASS_NAME, "fontDisplayLarge").text or "").strip())
+            except Exception:
+                return False
+
         try:
-            WebDriverWait(driver, 8).until(
-                lambda d: re.search(r"\([\d.,]+\)",
-                                    d.find_element(By.CSS_SELECTOR, "div.F7nice").text or "")
-            )
+            WebDriverWait(driver, 8).until(_cabecera_lista)
         except Exception:
-            # No se pudo confirmar: se le da un margen mínimo y `detectar_total_reviews` hará su
-            # propio intento con los otros métodos que ya tiene.
-            time.sleep(1)
+            time.sleep(2)
         
         # Extraer conteo actual de la página
         count_actual = detectar_total_reviews(driver)
