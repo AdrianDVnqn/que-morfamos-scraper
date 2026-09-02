@@ -44,6 +44,13 @@ from llm_utils import generar_resumen_reviews, detectar_info_nueva, limpiar_text
 # que una semana sin novedades.
 RESUMENES_ROTOS = []
 
+# Cuantas resenas nuevas VALIDAS (>30 caracteres) hacen falta para preguntarle al LLM si el
+# resumen quedo desactualizado. Ojo: el LLM decide despues si vale regenerar
+# (`detectar_info_nueva`), asi que este numero no es "cada cuanto se regenera" sino "cada cuanto
+# se pregunta". Bajarlo cuesta una llamada barata; subirlo demasiado congela los resumenes, que
+# es lo que paso con el 20 anterior.
+UMBRAL_RESENAS_NUEVAS = int(os.getenv("UMBRAL_RESENAS_NUEVAS", "15"))
+
 
 def get_sqlalchemy_url(url):
     if url and url.startswith("postgres://"):
@@ -302,13 +309,21 @@ def regenerate_incremental():
         # Filtro de CALIDAD: > 30 caracteres (después de limpiar repetidos/puntuación)
         reviews_validas = [r for r in reviews_nuevas if r and len(limpiar_texto(str(r))) > 30]
         
-        # Umbral MÍNIMO de cantidad: al menos 20 reviews nuevas válidas para justificar análisis
-        # (Optimización de costos para estudiante: solo regenerar cuando hay mucho volumen nuevo)
-        if len(reviews_validas) < 20:
-            # Si hay pocas reviews nuevas, solo actualizamos la fecha para no chequear mañana lo mismo
-            # (A menos que pasaran > 30 días, eso se podría agregar luego)
-            if reviews_nuevas: # Si hay reviews pero son cortas o pocas
-                 actualizar_resumen_lugar(nombre, resumen_actual) # Actualiza timestamp sin cambiar resumen
+        # Umbral MÍNIMO para justificar el análisis. Era 20 y NUNCA se alcanzaba: medido el
+        # 01-sep, con 245 lugares que recibieron reseñas nuevas en la semana, los que llegaban a
+        # 20 válidas eran CERO. Los resúmenes no se regeneraban desde julio.
+        if len(reviews_validas) < UMBRAL_RESENAS_NUEVAS:
+            # NO se toca el timestamp. Esta es la mitad importante del arreglo: antes acá se
+            # llamaba a `actualizar_resumen_lugar(nombre, resumen_actual)` "para no chequear
+            # mañana lo mismo", y eso ponía `embedding_updated_at = NOW()` aunque el resumen no
+            # cambiara. Como la ventana de "reseñas nuevas" se calcula contra esa fecha, se
+            # REINICIABA cada semana: las 3 reseñas de esta semana no se sumaban a las 4 de la
+            # que viene, así que ningún lugar acumulaba nunca lo suficiente. Era una condición
+            # imposible de cumplir, no un umbral exigente.
+            # Medido, la diferencia que hace: con umbral 15, la ventana que se reinicia alcanza a
+            # 3 lugares por semana; acumulando, a 119.
+            # El costo de no cortar acá es una consulta de conteo por lugar y por corrida — el
+            # LLM sólo se toca pasando el umbral.
             continue
 
         logger.info(f"[CHECK] {nombre[:40]}... ({len(reviews_validas)} reviews nuevas válidas)")
