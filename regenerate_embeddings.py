@@ -39,6 +39,12 @@ from db_utils import (
 from llm_utils import generar_resumen_reviews, detectar_info_nueva, limpiar_texto
 
 
+# Se llena si la generacion de resumenes fallo de forma masiva. Hace que el script termine con
+# codigo != 0 para que el workflow salga en ROJO: un fallo del proveedor no puede verse igual
+# que una semana sin novedades.
+RESUMENES_ROTOS = []
+
+
 def get_sqlalchemy_url(url):
     if url and url.startswith("postgres://"):
         return url.replace("postgres://", "postgresql+psycopg2://", 1)
@@ -162,6 +168,7 @@ def regenerate_full(resume=False):
     docs = []
     procesados = 0
     resumenes_count = 0
+    fallos_resumen = 0
     skipped_count = 0
     
     limit_date = datetime.now() - timedelta(hours=24)
@@ -208,6 +215,13 @@ def regenerate_full(resume=False):
             doc = create_document(lugar, resumen)
             if doc:
                 docs.append(doc)
+        else:
+            # Se cuenta el fallo. `generar_resumen_reviews` devuelve "" cuando la llamada al LLM
+            # falla, y antes eso se salteaba en silencio: con el proveedor caido el job terminaba
+            # en VERDE habiendo generado cero resumenes. Paso de verdad — el saldo de DeepSeek se
+            # agoto y nadie se entero hasta que se fue a buscar por que los resumenes estaban
+            # viejos.
+            fallos_resumen += 1
         
         # Log de progreso
         if (i + 1) % 50 == 0:
@@ -261,6 +275,7 @@ def regenerate_incremental():
     
     lugares_a_actualizar = []
     nuevos_resumenes = {}
+    fallos_resumen = 0
     
     for i, lugar in enumerate(lugares):
         nombre = lugar['nombre']
@@ -307,11 +322,34 @@ def regenerate_incremental():
                 nuevos_resumenes[nombre] = resumen
                 lugares_a_actualizar.append(lugar)
                 logger.info(f"   ✅ Info nueva detectada, regenerando")
+            else:
+                # Se CUENTA el fallo. Antes esto se salteaba en silencio, y como
+                # `detectar_info_nueva` devuelve True ante un error, con el proveedor caído todos
+                # los lugares pasaban la puerta, fallaban al generar, y `lugares_a_actualizar`
+                # quedaba vacío: el job reportaba "no hubo cambios", que es INDISTINGUIBLE de una
+                # semana tranquila. Paso de verdad al agotarse el saldo de DeepSeek.
+                fallos_resumen += 1
+                logger.warning(f"   ⚠️ Falló la generación del resumen de {nombre[:40]}")
         else:
             logger.info(f"   ⏭️ Sin info nueva relevante, actualizando solo timestamp")
             actualizar_resumen_lugar(nombre, resumen_actual) # Actualiza solo fecha
     
     logger.info(f"\n📊 Lugares a actualizar: {len(lugares_a_actualizar)}")
+
+    # "Todo falló" y "no hubo novedades" se veían EXACTAMENTE IGUAL desde afuera: los dos
+    # terminaban con la lista vacía y el job en verde. Acá se separan. Si hubo intentos y la
+    # mayoría falló, es el proveedor —sin saldo o credenciales mal—, no una semana tranquila.
+    intentos = len(lugares_a_actualizar) + fallos_resumen
+    if fallos_resumen and fallos_resumen >= max(3, intentos * 0.5):
+        proveedor = os.getenv("SUMMARY_PROVIDER", "deepseek")
+        logger.error(
+            f"🔴 RESÚMENES ROTOS: fallaron {fallos_resumen} de {intentos} intentos. "
+            f"Con esa proporción no es un caso aislado — revisar saldo y credenciales de "
+            f"'{proveedor}'. Los resúmenes NO se actualizaron esta corrida."
+        )
+        RESUMENES_ROTOS.append((fallos_resumen, intentos, proveedor))
+    elif fallos_resumen:
+        logger.warning(f"⚠️ {fallos_resumen} de {intentos} resúmenes fallaron.")
     
     # Enviar reporte si NO hubo cambios (para saber que corrió)
     if not lugares_a_actualizar:
@@ -460,3 +498,12 @@ if __name__ == "__main__":
         regenerate_embeddings_only()
     else:
         regenerate_incremental()
+
+    # El workflow tiene que salir en ROJO si los resumenes no se generaron. Sin esto el job
+    # terminaba en verde con cero resumenes y el problema podia pasar semanas sin que nadie lo
+    # viera — que es exactamente lo que paso al agotarse el saldo de DeepSeek.
+    if RESUMENES_ROTOS:
+        fallos, intentos, proveedor = RESUMENES_ROTOS[0]
+        print(f"::error::Resumenes rotos: fallaron {fallos}/{intentos} con proveedor "
+              f"'{proveedor}'. Revisar saldo y credenciales.")
+        sys.exit(1)

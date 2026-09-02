@@ -73,6 +73,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # Explicito, no por default. El default del codigo es deepseek y esa cuenta se quedo sin
+          # saldo: como el fallo era silencioso, el job seguia terminando en verde con cero
+          # resumenes generados. Ademas el ID de modelo por defecto (deepseek-chat) ya no figura
+          # en su catalogo (pendiente #16 del DEV_LOG). openai es el que tiene saldo hoy.
+          SUMMARY_PROVIDER: openai
         run: |
           if [ "${{ github.event.inputs.full_regeneration }}" == "true" ]; then
             if [ "${{ github.event.inputs.resume }}" == "true" ]; then
