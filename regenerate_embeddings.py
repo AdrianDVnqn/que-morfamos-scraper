@@ -396,6 +396,14 @@ def regenerate_incremental():
             todas_reviews = get_todas_reviews_lugar(nombre) # Devuelve dicts con rating
             resumen = generar_resumen_reviews(todas_reviews, nombre)
             if resumen:
+                # Se persiste ACA, no al final. Antes los resúmenes se acumulaban en memoria y se
+                # escribían recién después del bucle: una corrida cortada a la mitad —timeout del
+                # runner, error de red, lo que sea— perdía TODO el trabajo del LLM ya pagado. Con
+                # 100 lugares y varios minutos cada uno, esa ventana de riesgo son horas.
+                # Escribir por lugar hace la corrida reanudable de hecho: lo ya hecho queda hecho,
+                # y como el timestamp se actualiza en la misma operación, la siguiente corrida no
+                # lo vuelve a tomar.
+                actualizar_resumen_lugar(nombre, resumen)
                 nuevos_resumenes[nombre] = resumen
                 lugares_a_actualizar.append(lugar)
                 logger.info(f"   ✅ Info nueva detectada, regenerando")
@@ -444,9 +452,11 @@ def regenerate_incremental():
         return
     
     # Actualizar resúmenes en DB
-    logger.info("💾 Guardando resúmenes en DB...")
-    for nombre, resumen in nuevos_resumenes.items():
-        actualizar_resumen_lugar(nombre, resumen)
+    # Los resúmenes ya se guardaron uno por uno dentro del bucle, para que una corrida cortada no
+    # pierda el trabajo del LLM. Este bloque quedaba como segunda escritura idéntica de todo:
+    # inofensiva, pero engañosa al leer el código —parecía que ACÁ era donde se persistía— y
+    # duplicaba una UPDATE por lugar sin motivo.
+    logger.info(f"💾 {len(nuevos_resumenes)} resúmenes ya persistidos durante el recorrido.")
     
     # Eliminar embeddings viejos de los lugares a actualizar
     nombres_actualizar = [l['nombre'] for l in lugares_a_actualizar]
