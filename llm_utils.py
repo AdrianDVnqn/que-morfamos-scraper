@@ -224,7 +224,17 @@ EXTRA_V5 = """
        accesibilidad para sillas de ruedas · apto para grupos grandes · desayuno o merienda
      No es una lista para completar: es una lista para REVISAR. Un ítem sin respaldo en las
      reseñas no va, y nombrar de más es peor que omitir.
-     Preferí la palabra que usan las reseñas antes que un sinónimo tuyo."""
+     Preferí la palabra que usan las reseñas antes que un sinónimo tuyo.
+
+     PROHIBIDO decir que algo NO se menciona. La lista de arriba es para vos, no para el lector:
+     él no tiene que enterarse de que la revisaste. Si una característica no está respaldada,
+     simplemente NO APARECE en el texto — sin aclaración, sin "no se especifica", sin "no hay
+     información sobre".
+       MAL:  "no se mencionan características como opciones sin TACC, juegos para niños o
+              estacionamiento"
+       MAL:  "aunque no se menciona la disponibilidad de estacionamiento"
+       BIEN: (esa oración no existe; el párrafo habla sólo de lo que las reseñas sí confirman)
+     Un resumen más corto pero enteramente afirmativo es MEJOR que uno largo lleno de ausencias."""
 
 
 def generar_resumen_reviews(reviews_data, nombre_lugar=""):

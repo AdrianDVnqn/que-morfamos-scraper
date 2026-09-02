@@ -41,7 +41,7 @@ from llm_utils import generar_resumen_reviews
 
 # Cambiar cuando se toque el prompt: los lugares con otra versión se regeneran, los que ya tienen
 # ésta se saltean. Es lo que hace el script resumible y permite rollouts parciales.
-PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v5-recall-features-2026-09-01")
+PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v5.1-sin-ausencias-2026-09-01")
 COLLECTION_V2 = os.getenv("COLLECTION_NAME_V2", "reviews_embeddings_v2")
 CONCURRENCIA = int(os.getenv("REGEN_CONCURRENCIA", "6"))
 
