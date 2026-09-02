@@ -44,6 +44,13 @@ MAX_RUNTIME_SECONDS = MAX_RUNTIME_HOURS * 3600
 # Máximo de reseñas a cargar por lugar (para limitar scroll)
 MAX_REVIEWS_POR_LUGAR = 100
 
+# Cuantas veces la cabecera no termino de cargar dentro del tiempo de espera. Se reporta en el
+# resumen de la corrida a proposito: la espera por condicion reemplazo a un sleep fijo, y sin un
+# numero que mirar ese cambio podria degradarse durante semanas sin que nadie se entere — que es
+# exactamente lo que paso con la regeneracion de resumenes. Si este numero crece, la condicion
+# esta mal o Google cambio el DOM.
+CABECERA_SIN_CONFIRMAR = [0]
+
 
 def procesar_lugar(driver, lugar, ultimas_reviews_db):
     """
@@ -104,6 +111,7 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
         try:
             WebDriverWait(driver, 8).until(_cabecera_lista)
         except Exception:
+            CABECERA_SIN_CONFIRMAR[0] += 1
             time.sleep(2)
         
         # Extraer conteo actual de la página
@@ -368,6 +376,14 @@ def run_monitor():
         # La linea va SIEMPRE, aunque sea 0: el notificador la levanta por regex desde run.log y
         # la manda a Discord, que es lo que hace que deje de pasar desapercibido.
         logger.info(f"Fichas muertas: {len(fichas_muertas)}")
+        # Salud de la espera por condicion. Con 929 lugares, unos pocos son normales (paginas
+        # lentas, fichas raras); decenas significan que la condicion dejo de cumplirse.
+        logger.info(f"Cabecera sin confirmar: {CABECERA_SIN_CONFIRMAR[0]}")
+        if CABECERA_SIN_CONFIRMAR[0] > len(lugares) * 0.1:
+            logger.warning(
+                f"⚠️ {CABECERA_SIN_CONFIRMAR[0]} de {len(lugares)} lugares no confirmaron la "
+                f"cabecera en 8s. Revisar si Google cambio div.F7nice o fontDisplayLarge."
+            )
         if fichas_muertas:
             logger.warning("💀 Google ya no resuelve la ficha de estos lugares (¿cerraron, o los")
             logger.warning("   fusionó/reemplazó?). Hay que revalidar la URL o darlos de baja:")

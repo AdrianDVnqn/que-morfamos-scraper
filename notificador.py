@@ -162,7 +162,8 @@ def procesar_modo_monitor(args):
         'con_cambios': '?',
         'nuevas_reviews': '?',
         'tiempo': '?',
-        'fichas_muertas': '0'
+        'fichas_muertas': '0',
+        'cabecera_sin_confirmar': '0'
     }
     
     try:
@@ -176,7 +177,8 @@ def procesar_modo_monitor(args):
                 'con_cambios': r'Lugares con cambios: (\d+)',
                 'nuevas_reviews': r'Reseñas nuevas: (\d+)',
                 'tiempo': r'Tiempo: ([\d.]+) minutos',
-                'fichas_muertas': r'Fichas muertas: (\d+)'
+                'fichas_muertas': r'Fichas muertas: (\d+)',
+                'cabecera_sin_confirmar': r'Cabecera sin confirmar: (\d+)'
             }
             
             for key, pattern in patterns.items():
@@ -195,7 +197,7 @@ def procesar_modo_monitor(args):
 🔄 **Con cambios:** {stats['con_cambios']}
 ⭐ **Reseñas nuevas:** {stats['nuevas_reviews']}
 ⏱️ **Tiempo:** {stats['tiempo']} min
-{'💀 **Fichas muertas en Google:** ' + stats['fichas_muertas'] + ' (revisar el log: hay que revalidar la URL o dar de baja)' if stats['fichas_muertas'] not in ('0', '?') else ''}
+{'💀 **Fichas muertas en Google:** ' + stats['fichas_muertas'] + ' (revisar el log: hay que revalidar la URL o dar de baja)' if stats['fichas_muertas'] not in ('0', '?') else ''}{chr(10) + '⏱️ **Cabeceras sin confirmar:** ' + stats['cabecera_sin_confirmar'] + ' (si es alto, Google cambio el DOM y la espera por condicion dejo de servir)' if stats['cabecera_sin_confirmar'] not in ('0', '?') else ''}
 [Ver log completo en GitHub Actions]"""
 
         color = 0x2ecc71 if stats['nuevas_reviews'] != '0' and stats['nuevas_reviews'] != '?' else 0x3498db
