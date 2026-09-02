@@ -45,11 +45,29 @@ from llm_utils import generar_resumen_reviews, detectar_info_nueva, limpiar_text
 RESUMENES_ROTOS = []
 
 # Cuantas resenas nuevas VALIDAS (>30 caracteres) hacen falta para preguntarle al LLM si el
-# resumen quedo desactualizado. Ojo: el LLM decide despues si vale regenerar
+# resumen quedo desactualizado. El LLM decide DESPUES si vale regenerar
 # (`detectar_info_nueva`), asi que este numero no es "cada cuanto se regenera" sino "cada cuanto
-# se pregunta". Bajarlo cuesta una llamada barata; subirlo demasiado congela los resumenes, que
-# es lo que paso con el 20 anterior.
-UMBRAL_RESENAS_NUEVAS = int(os.getenv("UMBRAL_RESENAS_NUEVAS", "15"))
+# vale la pena preguntar".
+#
+# El valor sale de medir el corpus, no de la intuicion. Sobre las 91.447 resenas de mas de 30
+# caracteres, el 38% menciona algun concepto del vocabulario (features, dietas, ocasiones); el
+# resto es "muy rico", "buena atencion" y demas, que no aporta nada buscable. Ojo tambien que la
+# MITAD de las resenas no tiene texto: son solo estrellas (percentiles 10 y 25 = 0 caracteres).
+#
+# Con p = 0.38 por resena:
+#
+#     N resenas   prob. de >=1 concepto   conceptos esperados   lugares/semana
+#         3               76%                    1.1                 45
+#         5               91%                    1.9                 19
+#        10               99%                    3.8                  8
+#        15              100%                    5.7                  3
+#        20              100%                    7.6                  0   <- el valor viejo
+#
+# 5 es el punto justo: 1.9 conceptos esperados cae en el mismo liston de >=2 menciones que usa la
+# metrica de evidencia para dar un concepto por confirmado — es la misma pregunta. Exigir 15
+# pedia 5.7 conceptos para molestarse en mirar, o sea el triple de la evidencia necesaria, y la
+# diferencia de costo entre 5 y 15 es menos de un centavo por semana.
+UMBRAL_RESENAS_NUEVAS = int(os.getenv("UMBRAL_RESENAS_NUEVAS", "5"))
 
 # Tope de dias sin evaluar un lugar. Es la valvula contra el congelamiento silencioso: sin ella,
 # un lugar de poco movimiento no llega nunca al umbral y su resumen queda viejo indefinidamente.
