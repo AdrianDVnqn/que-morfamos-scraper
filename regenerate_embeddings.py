@@ -73,6 +73,16 @@ UMBRAL_RESENAS_NUEVAS = int(os.getenv("UMBRAL_RESENAS_NUEVAS", "5"))
 # un lugar de poco movimiento no llega nunca al umbral y su resumen queda viejo indefinidamente.
 MAX_DIAS_SIN_EVALUAR = int(os.getenv("MAX_DIAS_SIN_EVALUAR", "90"))
 
+# TOPE DURO de lugares a EVALUAR por corrida. No es un limite de presupuesto -en regimen normal
+# son ~19 lugares por semana, muy por debajo- sino una red contra sorpresas: si algo vuelve a
+# resetear los timestamps en masa, una corrida sin tope regeneraria los 929 lugares de una.
+# Cuenta EVALUACIONES y no regeneraciones, porque el lugar donde el LLM contesta "no aporta nada"
+# igual gasto su llamada.
+# Con 100, el peor caso son ~$0.05 por corrida y el backlog acumulado desde julio (294 lugares)
+# se drena en unas 3 corridas. No causa inanicion: al evaluarse, el lugar resetea su ventana y
+# sale de la cola, asi que la siguiente corrida agarra a los que quedaron.
+MAX_LUGARES_POR_CORRIDA = int(os.getenv("MAX_LUGARES_POR_CORRIDA", "100"))
+
 
 def get_sqlalchemy_url(url):
     if url and url.startswith("postgres://"):
@@ -305,6 +315,10 @@ def regenerate_incremental():
     lugares_a_actualizar = []
     nuevos_resumenes = {}
     fallos_resumen = 0
+    tope_avisado = False
+    # Cuenta llamadas al LLM, no regeneraciones: preguntar "¿hay info nueva?" cuesta aunque la
+    # respuesta sea que no.
+    evaluados = 0
     
     for i, lugar in enumerate(lugares):
         nombre = lugar['nombre']
@@ -334,6 +348,15 @@ def regenerate_incremental():
         # Umbral MÍNIMO para justificar el análisis. Era 20 y NUNCA se alcanzaba: medido el
         # 01-sep, con 245 lugares que recibieron reseñas nuevas en la semana, los que llegaban a
         # 20 válidas eran CERO. Los resúmenes no se regeneraban desde julio.
+        # Tope de la corrida. Se chequea ANTES de mirar las resenas nuevas para no gastar ni la
+        # consulta de conteo de mas.
+        if evaluados >= MAX_LUGARES_POR_CORRIDA:
+            if not tope_avisado:
+                logger.info(f"🛑 Tope de {MAX_LUGARES_POR_CORRIDA} lugares alcanzado. El resto "
+                            f"queda para la proxima corrida (su ventana sigue acumulando).")
+                tope_avisado = True
+            continue
+
         # Válvula de seguridad contra el congelamiento. Un lugar de poco movimiento puede no
         # llegar nunca a UMBRAL_RESENAS_NUEVAS, y uno cuyo LLM contesta "no aporta nada" varias
         # veces seguidas resetea la ventana cada vez: en los dos casos el resumen se queda viejo
@@ -367,6 +390,7 @@ def regenerate_incremental():
         logger.info(f"[CHECK] {nombre[:40]}... ({len(reviews_validas)} reviews nuevas válidas)")
         
         # Verificar si aportan info nueva con DeepSeek
+        evaluados += 1
         if detectar_info_nueva(resumen_actual, reviews_validas):
             # Regenerar resumen completo
             todas_reviews = get_todas_reviews_lugar(nombre) # Devuelve dicts con rating
