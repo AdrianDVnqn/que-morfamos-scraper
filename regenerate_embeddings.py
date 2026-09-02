@@ -11,7 +11,7 @@ import sys
 import logging
 import time
 import requests
-from datetime import timedelta
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
@@ -50,6 +50,10 @@ RESUMENES_ROTOS = []
 # se pregunta". Bajarlo cuesta una llamada barata; subirlo demasiado congela los resumenes, que
 # es lo que paso con el 20 anterior.
 UMBRAL_RESENAS_NUEVAS = int(os.getenv("UMBRAL_RESENAS_NUEVAS", "15"))
+
+# Tope de dias sin evaluar un lugar. Es la valvula contra el congelamiento silencioso: sin ella,
+# un lugar de poco movimiento no llega nunca al umbral y su resumen queda viejo indefinidamente.
+MAX_DIAS_SIN_EVALUAR = int(os.getenv("MAX_DIAS_SIN_EVALUAR", "90"))
 
 
 def get_sqlalchemy_url(url):
@@ -312,7 +316,23 @@ def regenerate_incremental():
         # Umbral MÍNIMO para justificar el análisis. Era 20 y NUNCA se alcanzaba: medido el
         # 01-sep, con 245 lugares que recibieron reseñas nuevas en la semana, los que llegaban a
         # 20 válidas eran CERO. Los resúmenes no se regeneraban desde julio.
-        if len(reviews_validas) < UMBRAL_RESENAS_NUEVAS:
+        # Válvula de seguridad contra el congelamiento. Un lugar de poco movimiento puede no
+        # llegar nunca a UMBRAL_RESENAS_NUEVAS, y uno cuyo LLM contesta "no aporta nada" varias
+        # veces seguidas resetea la ventana cada vez: en los dos casos el resumen se queda viejo
+        # para siempre sin que nada lo señale. Pasado MAX_DIAS_SIN_EVALUAR se evalúa igual, con
+        # tal de que haya alguna reseña nueva que justifique mirar.
+        # Hoy no dispara para nadie (todos fueron evaluados hace ~51 días); es para que no vuelva
+        # a pasar lo de julio-agosto, donde los resúmenes se congelaron siete semanas sin aviso.
+        vencido = False
+        if embedding_date and len(reviews_validas) >= 5:
+            edad = datetime.now() - (embedding_date if isinstance(embedding_date, datetime)
+                                     else datetime.fromisoformat(str(embedding_date)))
+            vencido = edad.days > MAX_DIAS_SIN_EVALUAR
+            if vencido:
+                logger.info(f"[VENCIDO] {nombre[:40]}... ({edad.days} días sin evaluar, "
+                            f"{len(reviews_validas)} reseñas nuevas)")
+
+        if len(reviews_validas) < UMBRAL_RESENAS_NUEVAS and not vencido:
             # NO se toca el timestamp. Esta es la mitad importante del arreglo: antes acá se
             # llamaba a `actualizar_resumen_lugar(nombre, resumen_actual)` "para no chequear
             # mañana lo mismo", y eso ponía `embedding_updated_at = NOW()` aunque el resumen no
