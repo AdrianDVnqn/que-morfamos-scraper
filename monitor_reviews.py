@@ -2,6 +2,7 @@
 Monitor de Reviews - Actualización Diaria
 Verifica cambios en el conteo de reseñas y scrapea las nuevas.
 """
+import re
 import time
 import logging
 import os
@@ -78,7 +79,21 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
             except:
                 pass
         
-        time.sleep(2)  # Espera adicional para carga completa
+        # Se espera EXACTAMENTE lo que `detectar_total_reviews` necesita: que div.F7nice ya tenga
+        # el "(N)" del conteo. Antes acá había un `time.sleep(2)` fijo, y era peor en las dos
+        # direcciones: corría para los 929 lugares aunque la página ya estuviera lista —2s x 929 =
+        # 31 minutos por corrida de espera pura— y cuando Google tardaba más de 2s el conteo se
+        # leía a medio cargar. Esperar la condición devuelve apenas está lista y aguanta más
+        # cuando de verdad hace falta.
+        try:
+            WebDriverWait(driver, 8).until(
+                lambda d: re.search(r"\([\d.,]+\)",
+                                    d.find_element(By.CSS_SELECTOR, "div.F7nice").text or "")
+            )
+        except Exception:
+            # No se pudo confirmar: se le da un margen mínimo y `detectar_total_reviews` hará su
+            # propio intento con los otros métodos que ya tiene.
+            time.sleep(1)
         
         # Extraer conteo actual de la página
         count_actual = detectar_total_reviews(driver)
