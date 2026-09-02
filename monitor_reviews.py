@@ -162,9 +162,26 @@ def procesar_lugar(driver, lugar, ultimas_reviews_db):
         # Ordenar por recientes
         ordenar_por_recientes(driver)
         
-        # Calcular cuántas reseñas nuevas esperamos (máximo)
-        diferencia = max(count_actual - count_db, 20)  # Al menos 20 para estar seguros
-        target = min(diferencia + 10, MAX_REVIEWS_POR_LUGAR)  # Un poco más por seguridad
+        # Cuántas reseñas cargar. El piso existe como seguro: Google no siempre ordena perfecto
+        # por fecha, así que se carga de más y `extraer_reviews_de_pagina` corta solo al llegar a
+        # las ya conocidas (early-stop).
+        #
+        # El piso era 20 y estaba desproporcionado. Medido sobre 35 días de historial, de los
+        # lugares que CAMBIAN la mediana son 2 reseñas nuevas y el promedio 4.9:
+        #
+        #     1-2 nuevas   47% de los que cambian
+        #     3-5          28%
+        #     6-10          7%
+        #     11-20         2%
+        #     20+          16%   <- estos los cubre `diferencia`, no el piso
+        #
+        # O sea que para 3 de cada 4 lugares que cambian el piso mandaba a cargar 30 reseñas
+        # (20+10) cuando habían llegado 2. Google carga de a ~10 por tanda de scroll, así que
+        # eran 3 tandas donde alcanzaba con 1.
+        #
+        # 10 sigue siendo 5 veces la mediana, así que el seguro se mantiene holgado.
+        diferencia = max(count_actual - count_db, 10)
+        target = min(diferencia + 10, MAX_REVIEWS_POR_LUGAR)
         
         logger.info(f"   📜 Cargando ~{target} reseñas (diferencia: {diferencia})...")
         
