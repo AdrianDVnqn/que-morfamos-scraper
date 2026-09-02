@@ -237,6 +237,32 @@ EXTRA_V5 = """
      Un resumen más corto pero enteramente afirmativo es MEJOR que uno largo lleno de ausencias."""
 
 
+# v6 busca en UNA pasada lo que la columna experimental v3 lograba concatenando v1 + v5.1: la
+# riqueza descriptiva de v1 (que es lo que alimenta los embeddings y el matching por termino del
+# ranking) MAS la enumeracion de features de v5.1.
+#
+# El diagnostico que lo motiva es de largo, no de contenido. Medido sobre los mismos 40 lugares:
+#
+#     version   largo mediano   recall de features   frases de ausencia
+#     v1            2010              33%                  28%
+#     v5.1          1578              51%                  12%
+#     v3 (v1+v5.1)  3171               —                    —
+#
+# O sea que el checklist de v5.1 le robo atencion a la descripcion: gano features y perdio 430
+# caracteres de texto util. v6 conserva las reglas de v5.1 y le agrega la instruccion explicita
+# de NO comprimir los dos primeros parrafos, con un objetivo de largo.
+EXTRA_V6 = EXTRA_V5 + """
+
+     EL REPASO NO REEMPLAZA A LA DESCRIPCION. Los parrafos 1 y 2 son lo que hace que este lugar
+     se pueda ENCONTRAR: de ahi salen las palabras con las que alguien lo va a buscar. Escribilos
+     con el mismo detalle que si el parrafo 3 no existiera — que platos concretos destacan, como
+     es el ambiente, para que ocasion sirve, que dice la gente del precio y de la atencion.
+     Un resumen que enumera bien las caracteristicas pero describe poco es PEOR que uno que
+     describe bien: la enumeracion sirve para filtrar, la descripcion para encontrar.
+     Apunta a unos 2000 caracteres en total. No los rellenes con paja: si el lugar da para mas,
+     escribi mas; lo que no hay que hacer es recortar la descripcion para que entre la lista."""
+
+
 def generar_resumen_reviews(reviews_data, nombre_lugar=""):
     """
     Genera un resumen estructurado usando muestreo estratégico.
@@ -270,7 +296,7 @@ def generar_resumen_reviews(reviews_data, nombre_lugar=""):
         
     reseñas_concat = "\n---\n".join(formatted_reviews)
     
-    extra_v5 = EXTRA_V5 if VARIANTE_PROMPT == "v5" else ""
+    extra_v5 = {"v5": EXTRA_V5, "v6": EXTRA_V6}.get(VARIANTE_PROMPT, "")
 
     prompt = f"""Actúa como un experto en SEO gastronómico y Data Science. 
 Tu objetivo es generar un "Perfil Semántico Rico" para el restaurante "{nombre_lugar}" basado en sus reseñas.

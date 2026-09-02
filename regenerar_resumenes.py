@@ -41,7 +41,7 @@ from llm_utils import generar_resumen_reviews
 
 # Cambiar cuando se toque el prompt: los lugares con otra versión se regeneran, los que ya tienen
 # ésta se saltean. Es lo que hace el script resumible y permite rollouts parciales.
-PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v5.1-sin-ausencias-2026-09-01")
+PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v6-descriptivo-y-features-2026-09-01")
 COLLECTION_V2 = os.getenv("COLLECTION_NAME_V2", "reviews_embeddings_v2")
 CONCURRENCIA = int(os.getenv("REGEN_CONCURRENCIA", "6"))
 
@@ -239,11 +239,16 @@ def generar_embeddings(engine):
     from langchain_core.documents import Document
 
     with engine.connect() as conn:
+        # Se toma TODO lo que tenga texto en la columna shadow, sin filtrar por versión. El filtro
+        # por versión dejaba afuera los heredados del backfill y construía una colección más chica
+        # que la de producción: medido, 717 lugares contra 914, y entre los 197 faltantes había 6
+        # que el golden dataset espera (BIO ZEN, Sushi Kami…). Comparar contra un corpus mutilado
+        # no mide la calidad del prompt nuevo, mide el hueco de cobertura.
         filas = conn.execute(text("""
             SELECT nombre, resumen_reviews_v2, rating_gral, direccion, zona, barrio, categoria
             FROM lugares
-            WHERE resumen_prompt_version = :v AND length(resumen_reviews_v2) > 50
-        """), {"v": PROMPT_VERSION}).fetchall()
+            WHERE length(resumen_reviews_v2) > 50
+        """)).fetchall()
 
     if not filas:
         print("❌ No hay resúmenes v2. Corré primero la regeneración.")
